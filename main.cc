@@ -18,6 +18,7 @@
 #include "perfevent/PerfEvent.hpp"
 #include "fsst/fsst.h"
 #include <cassert>
+#include <regex>
 #include <unordered_map>
 #include <algorithm>
 #include <fstream>
@@ -32,19 +33,101 @@ using namespace std;
 
 enum class AlgType : uint8_t {
   cpp_find,
-  naive_kmp_on_compressed_data
+  cpp_regex,
+  cpp_memmem,
+  kmp_on_decompressed_data,
+  kmp_on_compressed_data
 };
 
 std::string type_to_string(AlgType alg) {
   switch (alg) {
     case AlgType::cpp_find:
       return "c++-find";
-    case AlgType::naive_kmp_on_compressed_data:
-      return "naive-kmp[compressed]";
+    case AlgType::cpp_regex:
+      return "c++-regex";
+    case AlgType::cpp_memmem:
+      return "c++-memmem";
+    case AlgType::kmp_on_decompressed_data:
+      return "kmp[decompressed]";
+    case AlgType::kmp_on_compressed_data:
+      return "kmp[compressed]";
     default:
       return "Unknown";
   }
 }
+
+class StateMachine {
+public:
+  StateMachine(const std::string& pattern) : P(pattern), m(pattern.size()) {
+    build_pi();
+  }
+
+  void init_state(unsigned pos = 0) {
+    curr_state = pos;
+  }
+
+  void accept(char c) {
+    while ((curr_state > 0) && (P[curr_state] != c)) {
+      curr_state = pi[curr_state - 1];
+    }
+
+    if (P[curr_state] == c)
+      ++curr_state;
+  }
+
+  bool match(const std::string& text) {
+    // Init.
+    init_state();
+
+    // Iterate.
+    for (unsigned index = 0, limit = text.size(); index != limit; ++index) {
+      accept(text[index]);
+
+      if (curr_state == m)
+        return true;
+    }
+    return false;
+  }
+
+  bool match(const char* ptr, unsigned len) {
+    // Init.
+    init_state();
+
+    // Iterate.
+    for (unsigned index = 0, limit = len; index != limit; ++index) {
+      accept(ptr[index]);
+
+      if (curr_state == m)
+        return true;
+    }
+    return false;
+  }
+
+private:
+  std::string P;
+  unsigned m;
+  unsigned curr_state;
+  std::vector<unsigned> pi;
+  void build_pi() {
+    pi.assign(P.size(), 0);
+
+    pi[0] = 0;
+
+    unsigned k = 0;
+    for (unsigned q = 1, limit = P.size(); q != limit; ++q) {
+      while ((k > 0) && (P[k] != P[q])) {
+        k = pi[k - 1];
+      }
+
+      // Match? Then advance.
+      if (P[k] == P[q])
+        ++k;
+      
+      // Store the state.
+      pi[q] = k;
+    }
+  }
+};
 
 /// Base class for all compression tests.
 class CompressionRunner {
@@ -53,8 +136,8 @@ class CompressionRunner {
    virtual uint64_t compressCorpus(const vector<string>& data, unsigned long &bareSize, double &bulkTime, double& compressionTime, bool verbose) = 0;
    /// Decompress some selected rows, separated by newlines. The line number are in ascending order. The target buffer is guaranteed to be large enough
    virtual uint64_t decompressRows(vector<char>& target, const vector<unsigned>& lines) = 0;
-   /// Run Like.
-   virtual uint64_t runLike(std::vector<char>& target, const std::string& pattern, AlgType algType) = 0;
+   /// Run `LIKE`.
+   virtual size_t runLike(std::vector<char>& target, const std::string& pattern, AlgType algType) = 0;
 };
 
 /// No compresssion. Just used for debugging
@@ -89,22 +172,77 @@ class NoCompressionRunner : public CompressionRunner {
       return writer - target.data();
    }
 
-  uint64_t run_cpp_find(std::vector<char>& target, const std::string& pattern) {
+  size_t run_cpp_find(std::vector<char>& target, const std::string& pattern) {
     char* writer = target.data();
+    size_t count = 0;
     for (unsigned index = 0, limit = data.size(); index != limit; ++index) {
       if (data[index].find(pattern) != std::string::npos) {
+        ++count;
         auto len = data[index].size();
         memcpy(writer, data[index].data(), len);
         writer[len] = '\n';
         writer += len + 1;
       }
     }
-    return writer - target.data();
+    return count;
+  }
+
+  uint64_t run_cpp_regex(std::vector<char>& target, const std::string& pattern) {
+    std::regex regex_pattern(pattern, std::regex_constants::optimize);
+    char* writer = target.data();
+
+    size_t count = 0;
+    for (unsigned index = 0, limit = data.size(); index != limit; ++index) {
+      if (std::regex_search(data[index], regex_pattern)) {
+        auto len = data[index].size();
+        memcpy(writer, data[index].data(), len);
+        writer[len] = '\n';
+        writer += len + 1;
+      }
+    }
+
+    return count;
+  }
+
+  size_t run_kmp_on_decompressed_data(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+
+    auto stateMachine = StateMachine(pattern);
+    size_t count = 0;
+    for (unsigned index = 0, limit = data.size(); index != limit; ++index) {
+       if (stateMachine.match(data[index])) {
+        ++count;
+        auto len = data[index].size();
+        memcpy(writer, data[index].data(), len);
+        writer[len] = '\n';
+        writer += len + 1;
+      }
+    }
+    return count;
+  }
+
+  size_t run_cpp_memmem(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    size_t count = 0;
+    size_t pattern_len = pattern.size();
+    for (unsigned index = 0, limit = data.size(); index != limit; ++index) {
+      if (memmem(data[index].data(), data[index].size(), pattern.data(), pattern_len)) {
+        ++count;
+        auto len = data[index].size();
+        memcpy(writer, data[index].data(), len);
+        writer[len] = '\n';
+        writer += len + 1;
+      }
+    }
+    return count;
   }
 
   uint64_t runLike(std::vector<char>& target, const std::string& pattern, AlgType algType) override {
     switch (algType) {
       case AlgType::cpp_find: return run_cpp_find(target, pattern);
+      case AlgType::cpp_regex: return run_cpp_regex(target, pattern);
+      case AlgType::cpp_memmem: return run_cpp_memmem(target, pattern);
+      case AlgType::kmp_on_decompressed_data: return run_kmp_on_decompressed_data(target, pattern);
       default: return 0;
     }
   }
@@ -217,34 +355,107 @@ class FSSTCompressionRunner : public CompressionRunner {
       return writer - target.data();
    }
 
-  uint64_t run_cpp_find(std::vector<char>& target, const std::string& pattern) {
+  size_t run_cpp_find(std::vector<char>& target, const std::string& pattern) {
     char* writer = target.data();
     auto writer_limit = writer + target.size();
 
     auto data = compressedData.data();
     auto offsets = this->offsets.data();
+    size_t count = 0;
     for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
       auto start = index ? offsets[index - 1] : 0, end = offsets[index];
       unsigned len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
-      if (std::string_view(writer, len).find(pattern) == std::string::npos) {
-        // noop
-      } else {
+      
+      // Match?
+      if (std::string_view(writer, len).find(pattern) != std::string::npos) {
+        ++count;
         writer[len] = '\n';
         writer += len + 1;
       }
     }
-    return writer - target.data();
+    return count;
+  }
+
+  size_t run_cpp_regex(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    auto writer_limit = writer + target.size();
+
+    std::regex regex_pattern(pattern, std::regex_constants::optimize);
+
+    auto data = compressedData.data();
+    auto offsets = this->offsets.data();
+    size_t count = 0;
+    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
+      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
+      unsigned len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+
+      // Match?
+      if (std::regex_search(writer, writer + len, regex_pattern)) {
+        ++count;
+        writer[len] = '\n';
+        writer += len + 1;
+      }
+    }
+    return count;
+  }
+
+  size_t run_cpp_memmem(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    auto writer_limit = writer + target.size();
+
+    auto data = compressedData.data();
+    auto offsets = this->offsets.data();
+    size_t count = 0;
+    size_t pattern_len = pattern.size();
+    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
+      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
+      unsigned len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+      
+      // Match?
+      if (memmem(writer, len, pattern.data(), pattern_len)) {
+        ++count;
+        writer[len] = '\n';
+        writer += len + 1;
+      }
+    }
+    return count;
+  }
+
+  size_t run_kmp_on_decompressed_data(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    auto writer_limit = writer + target.size();
+
+    auto stateMachine = StateMachine(pattern);
+
+    auto data = compressedData.data();
+    auto offsets = this->offsets.data();
+    size_t count = 0;
+    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
+      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
+      unsigned len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+
+      // Match?
+      if (stateMachine.match(writer, len)) {
+        ++count;
+        writer[len] = '\n';
+        writer += len + 1;
+      }
+    }
+    return count;
   }
 
   uint64_t runLike(vector<char>& target, const std::string& pattern, AlgType alg_type) override {
     switch (alg_type) {
       case AlgType::cpp_find: return run_cpp_find(target, pattern);
+      case AlgType::cpp_regex: return run_cpp_regex(target, pattern);
+      case AlgType::cpp_memmem: return run_cpp_memmem(target, pattern);
+      case AlgType::kmp_on_decompressed_data: return run_kmp_on_decompressed_data(target, pattern);
       default: return 0;
     }
   }
 };
 
-static pair<bool, tuple<double, size_t, unsigned>> doFullDecompression(CompressionRunner& runner, string file, const unsigned num_repeats=100, bool verbose=false) {
+static pair<bool, tuple<size_t, double, size_t, unsigned>> doFullDecompression(CompressionRunner& runner, string file, const unsigned num_repeats=100, bool verbose=false) {
   uint64_t totalSize = 0;
   bool debug = getenv("DEBUG");
   NoCompressionRunner debugRunner;
@@ -294,13 +505,14 @@ static pair<bool, tuple<double, size_t, unsigned>> doFullDecompression(Compressi
   auto stopTime = std::chrono::high_resolution_clock::now();
 
   return {true, {
+    0,
     std::chrono::duration_cast<std::chrono::nanoseconds>(stopTime - startTime).count(),
     corpus.size(),
     num_repeats
   }};
 }
 
-static pair<bool, tuple<double, size_t, unsigned>> doLike(CompressionRunner& runner, string file, const string pattern, AlgType algType, const unsigned num_repeats=100, bool verbose=false) {
+static pair<bool, tuple<size_t, double, size_t, unsigned>> doLike(CompressionRunner& runner, string file, const string pattern, AlgType algType, const unsigned num_repeats=100, bool verbose=false) {
   uint64_t totalSize = 0;
   bool debug = getenv("DEBUG");
   NoCompressionRunner debugRunner;
@@ -337,29 +549,34 @@ static pair<bool, tuple<double, size_t, unsigned>> doLike(CompressionRunner& run
   targetBuffer.resize(corpusLen);
   if (debug) debugBuffer.resize(corpusLen);
 
+  auto count = 0;
   for (unsigned index = 0; index != num_repeats; ++index)
-    runner.runLike(targetBuffer, pattern, algType);
+    count = runner.runLike(targetBuffer, pattern, algType);
 
   auto startTime = std::chrono::high_resolution_clock::now();
   for (unsigned index = 0; index != num_repeats; ++index)
-    runner.runLike(targetBuffer, pattern, algType);
+    count = runner.runLike(targetBuffer, pattern, algType);
   auto stopTime = std::chrono::high_resolution_clock::now();
 
   return {true, {
+    count,
     std::chrono::duration_cast<std::chrono::nanoseconds>(stopTime - startTime).count(),
     corpus.size(),
     num_repeats
   }};
 }
 
-std::pair<bool, std::tuple<double, double>> display(std::pair<bool, std::tuple<double, size_t, unsigned>> r) {
-  auto time = std::get<0>(r.second);
-  auto size = std::get<1>(r.second);
-  auto num_repeats = std::get<2>(r.second);
-  return {r.first, {
+std::tuple<size_t, double, double, unsigned> display(std::pair<bool, std::tuple<size_t, double, size_t, unsigned>> r) {
+  auto count = std::get<0>(r.second);
+  auto time = std::get<1>(r.second);
+  auto size = std::get<2>(r.second);
+  auto num_repeats = std::get<3>(r.second);
+  return {
+    count,
     time / num_repeats / 1'000'000,
-    1'000'000'000 * num_repeats * size / time
-  }};
+    1'000'000'000 * num_repeats * size / time,
+    num_repeats
+  };
 }
 
 int main(int argc, const char* argv[]) {
@@ -393,14 +610,17 @@ int main(int argc, const char* argv[]) {
     auto info1 = display(r1);
     auto info2 = display(r2);
 
+    // Same count.
+    assert(std::get<0>(info1) == std::get<0>(info2));
+
     cout << "type\ttime [ms]\t throughput [#tuples / s]" << endl;
-    cout << "vanilla" << "\t" << std::get<0>(info1.second) << "\t" << std::get<1>(info1.second) << std::endl;
-    cout << "fsst" << "\t" << std::get<0>(info2.second) << "\t" << std::get<1>(info2.second) << std::endl;
+    cout << "vanilla" << "\t" << std::get<1>(info1) << "\t" << std::get<2>(info1) << std::endl;
+    cout << "fsst" << "\t" << std::get<1>(info2) << "\t" << std::get<2>(info2) << std::endl;
   } else if (method == "like") {
     assert(files.size() == 1);
 
     cout << "algo\ttype\ttime [ms]\t throughput [#tuples / s]" << endl;
-    for (auto algType : { AlgType::cpp_find, AlgType::naive_kmp_on_decompressed_data }) {
+    for (auto algType : { AlgType::cpp_find, AlgType::cpp_memmem, AlgType::kmp_on_decompressed_data }) {
       NoCompressionRunner runner1;
       auto r1 = doLike(runner1, files.front(), pattern, algType);
       assert(r1.first);
@@ -412,9 +632,12 @@ int main(int argc, const char* argv[]) {
       auto info1 = display(r1);
       auto info2 = display(r2);
 
+      // Same count.
+      assert(std::get<0>(info1) == std::get<0>(info2));
+
       auto algo = type_to_string(algType);
-      cout << algo << "\t" << "vanilla" << "\t" << std::get<0>(info1.second) << "\t" << std::get<1>(info1.second) << std::endl;
-      cout << algo << "\t" << "fsst" << "\t" << std::get<0>(info2.second) << "\t" << std::get<1>(info2.second) << std::endl;
+      cout << algo << "\t" << "vanilla" << "\t" << std::get<1>(info1) << "\t" << std::get<2>(info1) << std::endl;
+      cout << algo << "\t" << "fsst" << "\t" << std::get<1>(info2) << "\t" << std::get<2>(info2) << std::endl;
     }
   } else {
     cerr << "unknown method " << method << endl;
