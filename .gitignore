@@ -1,4 +1,6 @@
+.vscode
 main
+data
 
 # Prerequisites
 *.d

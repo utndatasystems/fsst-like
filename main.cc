@@ -17,6 +17,8 @@
 // You can contact the authors via the FSST source repository : https://github.com/cwida/fsst
 #include "perfevent/PerfEvent.hpp"
 #include "fsst/fsst.h"
+#include <cassert>
+#include <unordered_map>
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -28,6 +30,22 @@
 
 using namespace std;
 
+enum class AlgType : uint8_t {
+  cpp_find,
+  naive_kmp_on_compressed_data
+};
+
+std::string type_to_string(AlgType alg) {
+  switch (alg) {
+    case AlgType::cpp_find:
+      return "c++-find";
+    case AlgType::naive_kmp_on_compressed_data:
+      return "naive-kmp[compressed]";
+    default:
+      return "Unknown";
+  }
+}
+
 /// Base class for all compression tests.
 class CompressionRunner {
    public:
@@ -35,6 +53,8 @@ class CompressionRunner {
    virtual uint64_t compressCorpus(const vector<string>& data, unsigned long &bareSize, double &bulkTime, double& compressionTime, bool verbose) = 0;
    /// Decompress some selected rows, separated by newlines. The line number are in ascending order. The target buffer is guaranteed to be large enough
    virtual uint64_t decompressRows(vector<char>& target, const vector<unsigned>& lines) = 0;
+   /// Run Like.
+   virtual uint64_t runLike(std::vector<char>& target, const std::string& pattern, AlgType algType) = 0;
 };
 
 /// No compresssion. Just used for debugging
@@ -68,6 +88,26 @@ class NoCompressionRunner : public CompressionRunner {
       }
       return writer - target.data();
    }
+
+  uint64_t run_cpp_find(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    for (unsigned index = 0, limit = data.size(); index != limit; ++index) {
+      if (data[index].find(pattern) != std::string::npos) {
+        auto len = data[index].size();
+        memcpy(writer, data[index].data(), len);
+        writer[len] = '\n';
+        writer += len + 1;
+      }
+    }
+    return writer - target.data();
+  }
+
+  uint64_t runLike(std::vector<char>& target, const std::string& pattern, AlgType algType) override {
+    switch (algType) {
+      case AlgType::cpp_find: return run_cpp_find(target, pattern);
+      default: return 0;
+    }
+  }
 };
 
 /// FSST compression
@@ -159,6 +199,8 @@ class FSSTCompressionRunner : public CompressionRunner {
       char* writer = target.data();
       auto limit = writer + target.size();
 
+      // std::cerr << "target.size=" << target.size() << std::endl;
+
       auto data = compressedData.data();
       auto offsets = this->offsets.data();
       for (auto l : lines) {
@@ -169,294 +211,138 @@ class FSSTCompressionRunner : public CompressionRunner {
       }
       return writer - target.data();
    }
+
+  uint64_t runLike(vector<char>& target, const std::string& pattern, AlgType alg_type) override {
+    return 0;
+  }
 };
 
-/// LZ4 compression with a given block size
-class LZ4CompressionRunner : public CompressionRunner {
-   private:
-   /// An uncompressed block
-   struct Block {
-      /// The row count
-      unsigned rows;
-      /// The row offsets
-      unsigned offsets[];
+static pair<bool, tuple<double, double>> doFullDecompression(CompressionRunner& runner, string file, const unsigned num_repeats=100, bool verbose=false) {
+  uint64_t totalSize = 0;
+  bool debug = getenv("DEBUG");
+  NoCompressionRunner debugRunner;
 
-      /// Get the string offer
-      char* data() { return reinterpret_cast<char*>(offsets + rows); }
-   };
-   /// A compressed block
-   struct CompressedBlock {
-      /// The compressed size
-      unsigned compressedSize;
-      /// The uncompressed size
-      unsigned uncompressedSize;
-      /// The compressed data
-      char data[];
-   };
-   /// The block size
-   unsigned blockSize;
-   /// The blocks
-   vector<CompressedBlock*> blocks;
+  // Read the corpus
+  vector<string> corpus;
+  uint64_t corpusLen = 0;
+  {
+    ifstream in(file);
+    if (!in.is_open()) {
+        cerr << "unable to open " << file << endl;
+        return {false, {}};
+    }
+    string line;
+    while (getline(in, line)) {
+        corpusLen += line.length() + 1;
+        corpus.push_back(move(line));
+        if (corpusLen > 7000000) break;
+    }
+  }
+  corpusLen += 4096;
 
-   LZ4CompressionRunner(const LZ4CompressionRunner&) = delete;
-   void operator=(const LZ4CompressionRunner&) = delete;
+  // Compress it
+  double bulkTime, compressionTime;
+  unsigned long bareSize;
+  totalSize += runner.compressCorpus(corpus, bareSize, bulkTime, compressionTime, verbose);
+  if (debug) {
+    double ignored;
+    debugRunner.compressCorpus(corpus, bareSize, ignored, ignored, false);
+  }
 
-   public:
-   /// Constructor. Sets the block size to the given number of rows
-   explicit LZ4CompressionRunner(unsigned blockSize) : blockSize(blockSize) {}
-   /// Destructor
-   ~LZ4CompressionRunner() {
-      for (auto b : blocks)
-         free(b);
-   }
+  // Test different selectivities
+  vector<char> targetBuffer, debugBuffer;
+  targetBuffer.resize(corpusLen);
+  if (debug) debugBuffer.resize(corpusLen);
 
-   /// Store the compressed corpus. Returns the compressed size
-   uint64_t compressCorpus(const vector<string>& data, unsigned long &bareSize, double &bulkTime, double& compressionTime, bool verbose) override {
-      for (auto b : blocks)
-         free(b);
-      blocks.clear();
+  vector<unsigned> row_indices;
+  for (unsigned index = 0, limit = corpus.size(); index != limit; ++index)
+      row_indices.push_back(index);
 
-      bulkTime = compressionTime = 0;
-      bareSize = 0;
-      uint64_t result = 0;
-      vector<char> compressionBuffer, blockBuffer;
-      for (unsigned blockStart = 0, limit = data.size(); blockStart != limit;) {
-         unsigned next = blockStart + blockSize;
-         if (next > limit) next = limit;
+  for (unsigned index = 0; index != num_repeats; ++index)
+    runner.decompressRows(targetBuffer, row_indices);
 
-         // Form a block of rows
-         unsigned baseLen = sizeof(Block);
-         for (unsigned index = blockStart; index != next; ++index)
-            baseLen += data[index].length();
-         unsigned len = baseLen + (sizeof(unsigned) * (next - blockStart));
-         if (len > blockBuffer.size()) blockBuffer.resize(len);
+  auto startTime = std::chrono::steady_clock::now();
+  for (unsigned index = 0; index != num_repeats; ++index)
+    runner.decompressRows(targetBuffer, row_indices);
+  auto stopTime = std::chrono::steady_clock::now();
 
-         auto& block = *reinterpret_cast<Block*>(blockBuffer.data());
-         block.rows = next - blockStart;
-         unsigned maxLen = len + (len / 8) + 128;
-         if (maxLen > compressionBuffer.size()) compressionBuffer.resize(maxLen);
+  auto timing_info = tuple<double, unsigned>(
+    std::chrono::duration_cast<std::chrono::nanoseconds>(stopTime - startTime).count(),
+    corpusLen
+  );
 
-         // just compress strings without the offsets, to measure that, also
-         auto firstTime = std::chrono::steady_clock::now();
-         bareSize += LZ4_compress_default(block.data(), compressionBuffer.data(), baseLen, maxLen);
-         auto startTime = std::chrono::steady_clock::now();
-         bulkTime += std::chrono::duration<double>(startTime - firstTime).count();
+  if (verbose)
+    std::cout << "# total compress size: " << totalSize << endl;
+  tuple<double, double> result;
 
-         char* strings = block.data();
-         unsigned stringEnd = 0;
-         for (unsigned index = blockStart; index != next; ++index) {
-            memcpy(strings + stringEnd, data[index].data(), data[index].length());
-            stringEnd += data[index].length();
-            block.offsets[index - blockStart] = stringEnd;
-         }
-
-         // Compress it
-         unsigned lz4Len = LZ4_compress_default(blockBuffer.data(), compressionBuffer.data(), len, maxLen);
-         auto stopTime = std::chrono::steady_clock::now();
-         compressionTime += std::chrono::duration<double>(stopTime - startTime).count();
-
-         // And store the compressed data
-         result += sizeof(CompressedBlock) + lz4Len;
-         auto compressedBlock = static_cast<CompressedBlock*>(malloc(sizeof(CompressedBlock) + lz4Len));
-         compressedBlock->compressedSize = lz4Len;
-         compressedBlock->uncompressedSize = len;
-         memcpy(compressedBlock->data, compressionBuffer.data(), lz4Len);
-
-         blocks.push_back(compressedBlock);
-         blockStart = next;
-      }
-      if (verbose)
-         cout << "# compress time: " << compressionTime << endl;
-      return result;
-   }
-   /// Decompress some selected rows, separated by newlines. The line number are in ascending order. The target buffer is guaranteed to be large enough
-   virtual uint64_t decompressRows(vector<char>& target, const vector<unsigned>& lines) {
-      char* writer = target.data();
-      vector<char> decompressionBuffer;
-      unsigned currentBlock = 0;
-      for (auto l : lines) {
-         // Switch block on demand
-         if (decompressionBuffer.empty() || (l < (currentBlock * blockSize)) || (l >= ((currentBlock + 1) * blockSize))) {
-            currentBlock = l / blockSize;
-            auto compressedBlock = blocks[currentBlock];
-            if (decompressionBuffer.size() < compressedBlock->uncompressedSize) decompressionBuffer.resize(compressedBlock->uncompressedSize);
-            LZ4_decompress_safe(compressedBlock->data, decompressionBuffer.data(), compressedBlock->compressedSize, compressedBlock->uncompressedSize);
-         }
-
-         // Unpack the string
-         unsigned localOfs = l - (currentBlock * blockSize);
-         auto& block = *reinterpret_cast<Block*>(decompressionBuffer.data());
-         auto start = localOfs ? block.offsets[localOfs - 1] : 0;
-         auto end = block.offsets[localOfs];
-         auto len = end - start;
-         memcpy(writer, block.data() + start, len);
-         writer[len] = '\n';
-         writer += len + 1;
-      }
-      return writer - target.data();
-   }
-};
-
-static pair<bool, vector<pair<unsigned, double>>> doTest(CompressionRunner& runner, const vector<string>& files, bool verbose)
-// Test a runner for a given number of files
-{
-   uint64_t totalSize = 0;
-   bool debug = getenv("DEBUG");
-   NoCompressionRunner debugRunner;
-   map<unsigned, vector<pair<double, unsigned>>> timings;
-   constexpr unsigned repeat = 100;
-   for (auto& file : files) {
-      std::cerr << "file=" << file << std::endl;
-      // Read the corpus
-      vector<string> corpus;
-      uint64_t corpusLen = 0;
-      {
-         ifstream in(file);
-         if (!in.is_open()) {
-            cerr << "unable to open " << file << endl;
-            return {false, {}};
-         }
-         string line;
-         while (getline(in, line)) {
-            corpusLen += line.length() + 1;
-            corpus.push_back(move(line));
-            if (corpusLen > 7000000) break;
-         }
-      }
-      corpusLen += 4096;
-
-      // Compress it
-      double bulkTime, compressionTime;
-      unsigned long bareSize;
-      totalSize += runner.compressCorpus(corpus, bareSize, bulkTime, compressionTime, verbose);
-      if (debug) {
-         double ignored;
-         debugRunner.compressCorpus(corpus, bareSize, ignored, ignored, false);
-      }
-
-      // Prepare row counts
-      vector<unsigned> shuffledRows;
-      for (unsigned index = 0, limit = corpus.size(); index != limit; ++index)
-         shuffledRows.push_back(index);
-      {
-         // Use an explicit seed to get reproducibility
-         mt19937 g(123);
-         shuffle(shuffledRows.begin(), shuffledRows.end(), g);
-      }
-
-      // Test different selectivities
-      vector<char> targetBuffer, debugBuffer;
-      targetBuffer.resize(corpusLen);
-      if (debug) debugBuffer.resize(corpusLen);
-      for (unsigned sel : {1,3,10,30,100}) {
-         auto hits = shuffledRows;
-         hits.resize(hits.size() * sel / 100);
-         if (hits.empty()) continue;
-         sort(hits.begin(), hits.end());
-
-         unsigned len = 0;
-         for (unsigned index = 0; index != repeat; ++index)
-            len = runner.decompressRows(targetBuffer, hits);
-
-         auto startTime = std::chrono::steady_clock::now();
-         len = 0;
-         for (unsigned index = 0; index != repeat; ++index)
-            len = runner.decompressRows(targetBuffer, hits);
-         auto stopTime = std::chrono::steady_clock::now();
-
-         timings[sel].push_back(pair<double, unsigned>(std::chrono::duration<double>(stopTime - startTime).count(), hits.size()));
-
-         if (debug) {
-            unsigned len2 = debugRunner.decompressRows(debugBuffer, hits);
-            if ((len != len2) || (memcmp(targetBuffer.data(), debugBuffer.data(), len) != 0)) {
-               cerr << "result mismatch" << endl;
-               return {false, {}};
-            }
-         }
-      }
-   }
-
-   if (verbose)
-      cout << "# total compress size: " << totalSize << endl;
-   vector<pair<unsigned, double>> result;
-   for (auto& t : timings) {
-      double prod1 = 1, prod2 = 1;
-      for (auto e : t.second) {
-         prod1 *= e.first;
-         prod2 *= (e.second / e.first) * repeat / 1000;
-      }
-      prod1 = pow(prod1, 1.0 / t.second.size());
-      prod2 = pow(prod2, 1.0 / t.second.size());
-      if (verbose)
-         cout << t.first << " " << prod1 << " " << prod2 << endl;
-      result.push_back({t.first, prod2});
-   }
-   return {true, result};
+  auto time = std::get<0>(timing_info);
+  auto size = std::get<1>(timing_info);
+  return {true, {
+    time / num_repeats / 1'000'000,
+    (size / time) * num_repeats * 1'000'000'000
+  }};
 }
 
-template <class T>
-void cmpCase(unsigned blockSize, const string& file) {
-   unsigned long bareSize = 0, totalSize = 0;
-   double bulkTime = 0, compressionTime = 0, decompressionTime = 0, compressionRatio;
-   T runner(blockSize);
-   constexpr unsigned repeat = 100;
-   {
-      // Read the corpus
-      vector<string> corpus;
-      uint64_t corpusLen = 0;
-      constexpr uint64_t targetLen = 8 << 20;
-      {
-         ifstream in(file);
-         if (!in.is_open()) {
-            cerr << "unable to open " << file << endl;
-            exit(1);
-         }
-         string line;
-         while (getline(in, line)) {
-            corpusLen += line.length() + 1;
-            corpus.push_back(move(line));
-            if (corpusLen > targetLen) break;
-         }
-         if (corpus.empty()) return;
-         unsigned reader = 0;
-         while (corpusLen < targetLen) {
-            corpusLen += corpus[reader].length() + 1;
-            corpus.push_back(corpus[reader++]);
-         }
-      }
+static pair<bool, tuple<double, double>> doLike(CompressionRunner& runner, string file, const string pattern, AlgType algType, const unsigned num_repeats=100, bool verbose=false) {
+  uint64_t totalSize = 0;
+  bool debug = getenv("DEBUG");
+  NoCompressionRunner debugRunner;
 
-      // Compress it
-      totalSize += runner.compressCorpus(corpus, bareSize, bulkTime, compressionTime, false);
-      compressionRatio = static_cast<double>(corpusLen) / totalSize;
+  // Read the corpus
+  vector<string> corpus;
+  uint64_t corpusLen = 0;
+  {
+    ifstream in(file);
+    if (!in.is_open()) {
+        cerr << "unable to open " << file << endl;
+        return {false, {}};
+    }
+    string line;
+    while (getline(in, line)) {
+        corpusLen += line.length() + 1;
+        corpus.push_back(move(line));
+        if (corpusLen > 7000000) break;
+    }
+  }
+  corpusLen += 4096;
 
-      // Prepare hits vector counts
-      vector<unsigned> hits;
-      for (unsigned index = 0, limit = corpus.size(); index != limit; ++index)
-         hits.push_back(index);
+  // Compress it
+  double bulkTime, compressionTime;
+  unsigned long bareSize;
+  totalSize += runner.compressCorpus(corpus, bareSize, bulkTime, compressionTime, verbose);
+  if (debug) {
+    double ignored;
+    debugRunner.compressCorpus(corpus, bareSize, ignored, ignored, false);
+  }
 
-      vector<char> targetBuffer;
-      targetBuffer.resize(corpusLen + 4096);
-      {
-         for (unsigned index = 0; index != repeat; ++index) {
-            runner.decompressRows(targetBuffer, hits);
-         }
-         auto startTime = std::chrono::steady_clock::now();
-         for (unsigned index = 0; index != repeat; ++index) {
-            runner.decompressRows(targetBuffer, hits);
-         }
-         auto stopTime = std::chrono::steady_clock::now();
-         decompressionTime += std::chrono::duration<double>(stopTime - startTime).count();
-      }
-      cout << "\t" << static_cast<double>(corpusLen)/bareSize << "\t" << (corpusLen/bulkTime)/(1<<20) << "\t" << compressionRatio << "\t" << (corpusLen/compressionTime)/(1<<20) << "\t" << (corpusLen*repeat/decompressionTime)/(1<<20);
-   }
-}
+  // Test different selectivities
+  vector<char> targetBuffer, debugBuffer;
+  targetBuffer.resize(corpusLen);
+  if (debug) debugBuffer.resize(corpusLen);
 
-template <class T>
-vector<pair<unsigned, double>> cmpFilter(unsigned blockSize, const vector<string>& files) {
-   T runner(blockSize);
-   auto res = doTest(runner, files, false);
-   if (!res.first) exit(1);
-   return res.second;
+  for (unsigned index = 0; index != num_repeats; ++index)
+    runner.runLike(targetBuffer, pattern, algType);
+
+  auto startTime = std::chrono::steady_clock::now();
+  for (unsigned index = 0; index != num_repeats; ++index)
+    runner.runLike(targetBuffer, pattern, algType);
+  auto stopTime = std::chrono::steady_clock::now();
+
+  auto timing_info = tuple<double, unsigned>(
+    std::chrono::duration_cast<std::chrono::nanoseconds>(stopTime - startTime).count(),
+    corpusLen
+  );
+
+  if (verbose)
+    std::cout << "# total compress size: " << totalSize << endl;
+  tuple<double, double> result;
+
+  auto time = std::get<0>(timing_info);
+  auto size = std::get<1>(timing_info);
+  return {true, {
+    time / num_repeats / 1'000'000,
+    (size / time) * num_repeats * 1'000'000'000
+  }};
 }
 
 int main(int argc, const char* argv[]) {
@@ -464,7 +350,7 @@ int main(int argc, const char* argv[]) {
       return -1;
 
    string method = argv[1];
-   int blockSize = atoi(argv[2]);
+   std::string pattern = argv[2];
    vector<string> files;
    for (int index = 3; index < argc; ++index) {
       string f = argv[index];
@@ -476,42 +362,37 @@ int main(int argc, const char* argv[]) {
       }
    }
 
-   if (method == "nocompression") {
-      NoCompressionRunner runner;
-      return !doTest(runner, files, true).first;
-   } else if (method == "fsst") {
-      std::cerr << "here" << std::endl;
-      FSSTCompressionRunner runner;
-      return !doTest(runner, files, true).first;
-   } else if (method == "lz4") {
-      LZ4CompressionRunner runner(blockSize);
-      return !doTest(runner, files, true).first;
-   } else if (method == "compare") {
-      cout << "file";
-      for (auto name : {"FSST", "LZ4"})
-         cout << "\t" << name << "-brate\t" << "\t" << name << "-bMB/s\t" << "\t" << name << "-crate\t" << name << "-cMB/s\t" << name << "-dMB/s";
-      cout << endl;
-      for (auto& file : files) {
-         string name = file;
-         if (name.rfind('/') != string::npos)
-            name = name.substr(name.rfind('/') + 1);
-         cout << name;
-         cmpCase<FSSTCompressionRunner>(blockSize, file);
-         cmpCase<LZ4CompressionRunner>(blockSize, file);
-         cout << endl;
-      }
-   } else if (method == "comparefilter") {
-      auto r1 = cmpFilter<LZ4CompressionRunner>(blockSize, files);
-      auto r2 = cmpFilter<FSSTCompressionRunner>(blockSize, files);
-      cout << "sel\tlz4\tfsst" << endl;
-      for (unsigned index = 0; index != r1.size(); ++index)
-         cout << r1[index].first << "\t" << r1[index].second << "\t" << r2[index].second << endl;
+  if (method == "full-decompression") {
+    assert(files.size() == 1);
 
-   } else if (method == "like") {
-      auto r2 = cmpFilter<FSSTCompressionRunner>(blockSize, files);
-      
-   } else {
-      cerr << "unknown method " << method << endl;
-      return 1;
-   }
+    NoCompressionRunner runner1;
+    auto r1 = doFullDecompression(runner1, files.front());
+    assert(r1.first);
+
+    FSSTCompressionRunner runner2;
+    auto r2 = doFullDecompression(runner2, files.front());
+    assert(r2.first);
+
+    cout << "type \t time [ms] \t throughput [#tuples / s]" << endl;
+    cout << "vanilla" << "\t" << std::get<0>(r1.second) << "\t" << std::get<1>(r1.second) << std::endl;
+    cout << "fsst" << "\t" << std::get<0>(r2.second) << "\t" << std::get<1>(r2.second) << std::endl;
+  } else if (method == "like") {
+    // NoCompressionRunner runner;
+    // assert(files.size() == 1);
+    // std::cerr << "file=" << files.front() << std::endl;
+    // auto r1 = doLike(runner, files.front(), pattern, AlgType::cpp_find); 
+    // assert(r1.first);
+
+    // NoCompressionRunner runner;
+    // assert(files.size() == 1);
+    // std::cerr << "file=" << files.front() << std::endl;
+    // auto r1 = doLike(runner, files.front(), pattern, AlgType::cpp_find); 
+    // assert(r1.first);
+
+    // cout << "algo\tthroughput [#tuples / s]" << endl;
+    // cout << type_to_string(AlgType::cpp_find) << "\t" << std::get<0>(r.second) << "\t" << std::get<1>(r.second) << std::endl;
+  } else {
+    cerr << "unknown method " << method << endl;
+    return 1;
+  }
 }
