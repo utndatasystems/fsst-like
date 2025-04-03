@@ -56,12 +56,71 @@ std::string type_to_string(AlgType alg) {
   }
 }
 
+static constexpr unsigned FSST_SIZE = 255;
+#define FSST_CORRUPT 32774747032022883 /* 7-byte number in little endian containing "corrupt" */
+
 class StateMachine {
 public:
   StateMachine(const std::string& pattern) : P(pattern), m(pattern.size()) {
     build_pi();
   }
 
+  void init_state_lookup(fsst_decoder_t& fsst_decoder) {
+    // Resize.
+    fsst_symbols.reserve(FSST_SIZE);
+
+    // Take the FSST symbols.
+    for (unsigned index = 0; index < FSST_SIZE; ++index) {
+      auto len = fsst_decoder.len[index];
+      auto raw_symbol = fsst_decoder.symbol[index];
+
+      if (raw_symbol == FSST_CORRUPT) {
+        continue;
+      }
+
+      std::string symbol;
+      for (unsigned k = 0; k != len; ++k) {
+	  		int c = (raw_symbol >> 8*k) & 0xFF;
+        symbol += static_cast<char>(c);
+      }
+
+      // Add symbol.
+      fsst_symbols.push_back(symbol);
+    }
+    
+    // Init the fsst_size.
+    fsst_size = fsst_symbols.size();
+
+    // Init the state lookup.
+    state_lookup.resize(P.size() * fss);
+  }
+
+  void build_state_lookup(fsst_decoder_t& fsst_decoder) {
+    // Init the state cache.
+    init_state_lookup(fsst_decoder);
+
+    for (unsigned index = 0; index != m; ++index) {
+      for (unsigned symbol_index = 0; symbol_index != fsst_size; ++index) {
+        init_state(index);
+
+        accept_symbol(symbol);
+
+        state_lookup[i * fsst_size + symbol_index] = curr_state;
+      }
+    }
+  }
+
+    for i in range(len(self.pattern)):
+      for symbol in fsst_symbols:
+        # Set the current state to position `i`.
+        self.init_state(i)
+
+        # Simulate.
+        self.accept_symbol(symbol)
+
+        # Cache the state we arrived at.
+        self.cache_state[i * len(fsst_symbols) + symbol.index] = self.curr_state
+        
   void init_state(unsigned pos = 0) {
     curr_state = pos;
   }
@@ -74,6 +133,24 @@ public:
     if (P[curr_state] == c)
       ++curr_state;
   }
+
+  void accept(unsigned symbol_index) {
+    while ((curr_state > 0) && (P[curr_state] != c)) {
+      curr_state = pi[curr_state - 1];
+    }
+
+    if (P[curr_state] == c)
+      ++curr_state;
+  }
+
+  // void accept_symbol(symbol) {
+  //   for letter in symbol.val:
+  //     self.accept_letter(letter)
+
+  //     # Already reached the final state?
+  //     if self.curr_state == len(self.pattern):
+  //       return
+      
 
   bool match(const std::string& text) {
     // Init.
@@ -108,6 +185,10 @@ private:
   unsigned m;
   unsigned curr_state;
   std::vector<unsigned> pi;
+  unsigned fsst_size;
+  std::vector<std::string> fsst_symbols;
+  std::vector<unsigned> state_lookup;
+
   void build_pi() {
     pi.assign(P.size(), 0);
 
@@ -243,6 +324,7 @@ class NoCompressionRunner : public CompressionRunner {
       case AlgType::cpp_regex: return run_cpp_regex(target, pattern);
       case AlgType::cpp_memmem: return run_cpp_memmem(target, pattern);
       case AlgType::kmp_on_decompressed_data: return run_kmp_on_decompressed_data(target, pattern);
+      case AlgType::kmp_on_compressed_data: return 0;
       default: return 0;
     }
   }
@@ -444,12 +526,38 @@ class FSSTCompressionRunner : public CompressionRunner {
     return count;
   }
 
+  size_t run_kmp_on_compressed_data(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    auto writer_limit = writer + target.size();
+
+    auto stateMachine = StateMachine(pattern);
+
+    stateMachine.init_state_lookup(decoder);
+
+    auto data = compressedData.data();
+    auto offsets = this->offsets.data();
+    size_t count = 0;
+    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
+      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
+      unsigned len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+
+      // Match?
+      if (stateMachine.match(writer, len)) {
+        ++count;
+        writer[len] = '\n';
+        writer += len + 1;
+      }
+    }
+    return count;
+  }
+
   uint64_t runLike(vector<char>& target, const std::string& pattern, AlgType alg_type) override {
     switch (alg_type) {
       case AlgType::cpp_find: return run_cpp_find(target, pattern);
       case AlgType::cpp_regex: return run_cpp_regex(target, pattern);
       case AlgType::cpp_memmem: return run_cpp_memmem(target, pattern);
       case AlgType::kmp_on_decompressed_data: return run_kmp_on_decompressed_data(target, pattern);
+      case AlgType::kmp_on_compressed_data: return run_kmp_on_compressed_data(target, pattern);
       default: return 0;
     }
   }
@@ -512,7 +620,7 @@ static pair<bool, tuple<size_t, double, size_t, unsigned>> doFullDecompression(C
   }};
 }
 
-static pair<bool, tuple<size_t, double, size_t, unsigned>> doLike(CompressionRunner& runner, string file, const string pattern, AlgType algType, const unsigned num_repeats=100, bool verbose=false) {
+static pair<bool, tuple<size_t, double, size_t, unsigned>> doLike(CompressionRunner& runner, string file, const string pattern, AlgType algType, const unsigned num_repeats=1, bool verbose=false) {
   uint64_t totalSize = 0;
   bool debug = getenv("DEBUG");
   NoCompressionRunner debugRunner;
@@ -620,7 +728,12 @@ int main(int argc, const char* argv[]) {
     assert(files.size() == 1);
 
     cout << "algo\ttype\ttime [ms]\t throughput [#tuples / s]" << endl;
-    for (auto algType : { AlgType::cpp_find, AlgType::cpp_memmem, AlgType::kmp_on_decompressed_data }) {
+    for (auto algType : {
+      AlgType::cpp_find,
+      AlgType::cpp_memmem,
+      AlgType::kmp_on_decompressed_data,
+      AlgType::kmp_on_compressed_data
+    }) {
       NoCompressionRunner runner1;
       auto r1 = doLike(runner1, files.front(), pattern, algType);
       assert(r1.first);
