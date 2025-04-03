@@ -1,0 +1,3 @@
+[submodule "fsst"]
+	path = fsst
+	url = git@github.com:stoianmihail/fsst.git
