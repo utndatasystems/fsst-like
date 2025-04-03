@@ -1,3 +1,6 @@
 [submodule "fsst"]
 	path = fsst
 	url = git@github.com:stoianmihail/fsst.git
+[submodule "perfevent"]
+	path = perfevent
+	url = git@github.com:viktorleis/perfevent.git
