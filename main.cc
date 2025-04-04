@@ -67,12 +67,15 @@ static constexpr unsigned FSST_SIZE = 255;
 #define FSST_CORRUPT 32774747032022883 /* 7-byte number in little endian containing "corrupt" */
 
 /* Decompress a single string, inlined for speed. */
-inline size_t /* OUT: bytesize of the decompressed string. If > size, the decoded output is truncated to size. */
+template<typename ConsumeCode, typename ConsumeChar>
+inline size_t  /* OUT: bytesize of the decompressed string. If > size, the decoded output is truncated to size. */
 fsst_iterate(
-   const fsst_decoder_t *decoder,  /* IN: use this symbol table for compression. */
-   size_t lenIn,             /* IN: byte-length of compressed string. */
-   const unsigned char *strIn,     /* IN: compressed string. */
-   size_t size              /* IN: byte-length of output buffer. */
+  const fsst_decoder_t *decoder,  /* IN: use this symbol table for compression. */
+  size_t lenIn,             /* IN: byte-length of compressed string. */
+  const unsigned char *strIn,     /* IN: compressed string. */
+  size_t size,              /* IN: byte-length of output buffer. */
+  ConsumeCode&& consume_code,
+  ConsumeChar&& consume_char
 ) {
    unsigned char*__restrict__ len = (unsigned char* __restrict__) decoder->len;
   //  unsigned char*__restrict__ strOut = (unsigned char* __restrict__) output;
@@ -81,16 +84,6 @@ fsst_iterate(
 #ifndef FSST_MUST_ALIGN /* defining on platforms that require aligned memory access may help their performance */
 #define FSST_UNALIGNED_STORE(dst,src) memcpy((unsigned long long*) (dst), &(src), sizeof(unsigned long long))
 #if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
-
-  // This is probably too slow.
-  // We should give the function of the state machine. And that should be in-lined.
-  auto consume_code = [&](size_t code) {
-    // std::cerr << "<" << code << ">";
-  };
-
-  auto consume_char = [&](unsigned char c) {
-    // std::cerr << c;
-  };
 
    while (posOut+32 <= size && posIn+4 <= lenIn) {
       unsigned int nextBlock, escapeMask;
@@ -114,7 +107,7 @@ fsst_iterate(
          }
       }
    }
-   if (posOut+24 <= size) { // handle the possibly 3 last bytes without a loop
+   if (posOut+32 <= size) { // handle the possibly 3 last bytes without a loop
       if (posIn+2 <= lenIn) { 
       	 consume_char(strIn[posIn + 1]); //  strOut[posOut] = strIn[posIn+1]; 
          if (strIn[posIn] != FSST_ESC) {
@@ -284,6 +277,22 @@ public:
         return true;
     }
     return false;
+  }
+
+  bool inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+    auto consume_code = [this](size_t code) {
+      if (code > 0) {
+        code += 1;
+        // potentially do something with code
+      }
+    };
+
+    auto consume_char = [this](unsigned char c) {
+      if (c > 49) c += 1;
+    };
+
+    auto len = fsst_iterate(decoder, lenIn, strIn, size, consume_code, consume_char);
+    return true;
   }
 
 private:
@@ -710,12 +719,16 @@ class FSSTCompressionRunner : public CompressionRunner {
     char* writer = target.data();
     auto writer_limit = writer + target.size();
 
+    StateMachine stateMachine(pattern);
+
     auto data = compressedData.data();
     auto offsets = this->offsets.data();
     size_t count = 0;
     for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
       auto start = index ? offsets[index - 1] : 0, end = offsets[index];
-      unsigned len = fsst_iterate(&decoder, end - start, data + start, writer_limit - writer);
+      // unsigned len = fsst_iterate(&decoder, end - start, data + start, writer_limit - writer);
+
+      stateMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
 
       if ((count != oracle.size()) && (index == oracle[count])) {
         ++count;
@@ -928,7 +941,7 @@ int main(int argc, const char* argv[]) {
       AlgType::kmp_lower_bound,
       AlgType::kmp_on_decompressed_data,
       AlgType::kmp_on_compressed_data,
-      AlgType::simple_simd_find,
+      // AlgType::simple_simd_find,
     }) {
       auto oracle = computeOracle(files.front(), pattern);
       std::cerr << "oracle.size=" << oracle.size() << std::endl;
@@ -951,6 +964,7 @@ int main(int argc, const char* argv[]) {
       auto algo = type_to_string(algType);
       cout << algo << ", " << "vanilla" << ", " << std::get<1>(info1) << ", " << std::get<2>(info1) << std::endl;
       cout << algo << ", " << "fsst" << ", " << std::get<1>(info2) << ", " << std::get<2>(info2) << std::endl;
+      cout << std::endl;
     }
   } else {
     cerr << "unknown method " << method << endl;
