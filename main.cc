@@ -991,14 +991,14 @@ int main(int argc, const char* argv[]) {
     assert(r2.first);
 
     auto info1 = display(r1);
-    auto info2 = display(r2);
+    auto info_fsst = display(r2);
 
     // Same count.
-    assert(std::get<0>(info1) == std::get<0>(info2));
+    assert(std::get<0>(info1) == std::get<0>(info_fsst));
 
     cout << "type\ttime [ms]\t throughput [#tuples / s]" << endl;
     cout << "uncompressed" << "\t" << std::get<1>(info1) << "\t" << std::get<2>(info1) << std::endl;
-    cout << "fsst" << "\t" << std::get<1>(info2) << "\t" << std::get<2>(info2) << std::endl;
+    cout << "fsst" << "\t" << std::get<1>(info_fsst) << "\t" << std::get<2>(info_fsst) << std::endl;
   } else if (method == "like") {
     assert(files.size() == 1);
 
@@ -1025,32 +1025,32 @@ int main(int argc, const char* argv[]) {
       auto r2 = doLike(runner2, files.front(), pattern, algType, oracle);
       assert(r2.first);
 
-      auto info1 = display(r1);
-      auto info2 = display(r2);
+      auto info_uncompressed = display(r1);
+      auto info_fsst = display(r2);
 
-      std::cerr << std::get<0>(info1) << " " << std::get<0>(info2) << std::endl;
+      std::cerr << std::get<0>(info_uncompressed) << " " << std::get<0>(info_fsst) << std::endl;
 
       // Check with the oracle.
-      if (std::get<0>(info1) != infty) assert(std::get<0>(info1) == oracle.size());
-      if (std::get<0>(info2) != infty) assert(std::get<0>(info2) == oracle.size());
+      if (std::get<0>(info_uncompressed) != infty) assert(std::get<0>(info_uncompressed) == oracle.size());
+      if (std::get<0>(info_fsst) != infty) assert(std::get<0>(info_fsst) == oracle.size());
 
       // Add uncompressed.
-      if (std::get<0>(info1) != infty) {
+      if (std::get<0>(info_uncompressed) != infty) {
         ranking.push_back({
           "uncompressed",
           algType,
-          std::get<1>(info1),
-          std::get<2>(info1)
+          std::get<1>(info_uncompressed),
+          std::get<2>(info_uncompressed)
         });
       }
 
       // Add FSST.
-      if (std::get<0>(info2) != infty) {
+      if (std::get<0>(info_fsst) != infty) {
         ranking.push_back({
           "fsst",
           algType,
-          std::get<1>(info2),
-          std::get<2>(info2)
+          std::get<1>(info_fsst),
+          std::get<2>(info_fsst)
         });
       }
     }
