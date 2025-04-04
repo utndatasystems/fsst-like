@@ -40,10 +40,11 @@ enum class AlgType : uint8_t {
   kmp_lower_bound,
   kmp_on_decompressed_data,
   kmp_on_compressed_data,
+  lookup_kmp_on_compressed_data,
   simple_simd_find,
 };
 
-std::string type_to_string(AlgType alg) {
+std::string alg_type_to_string(AlgType alg) {
   switch (alg) {
     case AlgType::cpp_find:
       return "c++-find";
@@ -55,8 +56,10 @@ std::string type_to_string(AlgType alg) {
       return "lb-kmp[compressed]";
     case AlgType::kmp_on_decompressed_data:
       return "kmp[decompressed]";
-      case AlgType::kmp_on_compressed_data:
+    case AlgType::kmp_on_compressed_data:
       return "kmp[compressed]";
+    case AlgType::lookup_kmp_on_compressed_data:
+      return "lookup-kmp[compressed]";
     case AlgType::simple_simd_find:
       return "simple_simd_find";
     default:
@@ -169,7 +172,7 @@ public:
     build_pi();
   }
 
-  void init_state_lookup(fsst_decoder_t& fsst_decoder) {
+  void init_fsst_symbols(fsst_decoder_t& fsst_decoder) {
     // Resize.
     fsst_symbols.reserve(FSST_SIZE);
 
@@ -194,38 +197,24 @@ public:
     
     // Init the fsst_size.
     fsst_size = fsst_symbols.size();
-
-    // Init the state lookup.
-    state_lookup.resize(P.size() * fsst_size);
   }
 
-  // void build_state_lookup(fsst_decoder_t& fsst_decoder) {
-  //   // Init the state cache.
-  //   init_state_lookup(fsst_decoder);
+  void build_lookup_table() {
+    // Init the lookup table.
+    lookup_table.resize(P.size() * fsst_size);
 
-  //   for (unsigned index = 0; index != m; ++index) {
-  //     for (unsigned symbol_index = 0; symbol_index != fsst_size; ++index) {
-  //       // Init the state.
-  //       init_state(index);
+    for (unsigned index = 0; index != m; ++index) {
+      for (unsigned code = 0; code != fsst_size; ++code) {
+        // Init the state.
+        init_state(index);
 
-  //       accept_symbol(symbol);
+        accept_symbol(code);
 
-  //       state_lookup[i * fsst_size + symbol_index] = curr_state;
-  //     }
-  //   }
-  // }
+        lookup_table[index * fsst_size + code] = curr_state;
+      }
+    }
+  }
 
-    // for i in range(len(self.pattern)):
-    //   for symbol in fsst_symbols:
-    //     # Set the current state to position `i`.
-    //     self.init_state(i)
-
-    //     # Simulate.
-    //     self.accept_symbol(symbol)
-
-    //     # Cache the state we arrived at.
-    //     self.cache_state[i * len(fsst_symbols) + symbol.index] = self.curr_state
-        
   void init_state(unsigned pos = 0) {
     curr_state = pos;
   }
@@ -250,13 +239,18 @@ public:
     }
   }
 
-  bool match(const std::string& text) {
+  void accept_symbol_with_lookup(size_t code) {
+    // Use the state lookup table.
+    curr_state = lookup_table[curr_state * fsst_size + code];
+  }
+
+  bool match(const char* ptr, unsigned len) {
     // Init.
     init_state();
 
     // Iterate.
-    for (unsigned index = 0, limit = text.size(); index != limit; ++index) {
-      accept(text[index]);
+    for (unsigned index = 0, limit = len; index != limit; ++index) {
+      accept(ptr[index]);
 
       // TODO: Here, we can have two paths.
       // TODO: If `curr_state` is very far from the end, don't have this `if` here.
@@ -268,19 +262,8 @@ public:
     return false;
   }
 
-  bool match(const char* ptr, unsigned len) {
-    // Init.
-    init_state();
-
-    // Iterate.
-    for (unsigned index = 0, limit = len; index != limit; ++index) {
-      accept(ptr[index]);
-
-      if (curr_state == m)
-        return true;
-    }
-    return false;
-  }
+  // Another implementation.
+  bool match(const std::string& text) { return match(text.data(), text.size()); }
 
   bool inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
     // Init.
@@ -301,6 +284,25 @@ public:
     return fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
   }
 
+  bool inline_match_with_lookup(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+    // Init.
+    init_state();
+
+    auto consume_char = [this](unsigned char c) {
+      accept(c);
+      return curr_state != m;
+    };
+
+    auto consume_code = [this](size_t code) {
+      // TODO: Remove this assert at the end.
+      assert(code < fsst_size);
+      accept_symbol_with_lookup(code);
+      return curr_state != m;
+    };
+
+    return fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
+  }
+
 private:
   std::string P;
   unsigned m;
@@ -308,7 +310,7 @@ private:
   std::vector<unsigned> pi;
   unsigned fsst_size;
   std::vector<std::string> fsst_symbols;
-  std::vector<unsigned> state_lookup;
+  std::vector<unsigned> lookup_table;
 
   void build_pi() {
     pi.assign(P.size(), 0);
@@ -723,9 +725,9 @@ class FSSTCompressionRunner : public CompressionRunner {
 
     // Init the machine.
     auto stateMachine = StateMachine(pattern);
-
-    // Init the state lookup.
-    stateMachine.init_state_lookup(decoder);
+    
+    // Init the FSST-symbols.
+    stateMachine.init_fsst_symbols(decoder);
 
     auto data = compressedData.data();
     auto offsets = this->offsets.data();
@@ -735,6 +737,41 @@ class FSSTCompressionRunner : public CompressionRunner {
 
       // Check.
       auto ans = stateMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
+
+      // Match?
+      if (ans) {
+        ++count;
+
+        // Decompress.
+        unsigned new_len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+        writer[new_len] = '\n';
+        writer += new_len + 1;
+      }
+    }
+    return count;
+  }
+
+  size_t run_lookup_kmp_on_compressed_data(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    auto writer_limit = writer + target.size();
+
+    // Init the machine.
+    auto stateMachine = StateMachine(pattern);
+
+    // Init the FSST symbols.
+    stateMachine.init_fsst_symbols(decoder);
+
+    // Build the state lookup table.
+    stateMachine.build_lookup_table();
+
+    auto data = compressedData.data();
+    auto offsets = this->offsets.data();
+    size_t count = 0;
+    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
+      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
+
+      // Check.
+      auto ans = stateMachine.inline_match_with_lookup(&decoder, end - start, data + start, writer_limit - writer);
 
       // Match?
       if (ans) {
@@ -760,7 +797,6 @@ class FSSTCompressionRunner : public CompressionRunner {
     size_t count = 0;
     for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
       auto start = index ? offsets[index - 1] : 0, end = offsets[index];
-      // unsigned len = fsst_iterate(&decoder, end - start, data + start, writer_limit - writer);
 
       dummyStateMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
 
@@ -784,6 +820,7 @@ class FSSTCompressionRunner : public CompressionRunner {
       case AlgType::kmp_lower_bound: return run_kmp_lower_bound(target, pattern, oracle);
       case AlgType::kmp_on_decompressed_data: return run_kmp_on_decompressed_data(target, pattern);
       case AlgType::kmp_on_compressed_data: return run_kmp_on_compressed_data(target, pattern);
+      case AlgType::lookup_kmp_on_compressed_data: return run_lookup_kmp_on_compressed_data(target, pattern);
       default: return infty;
     }
   }
@@ -975,8 +1012,10 @@ int main(int argc, const char* argv[]) {
       AlgType::kmp_lower_bound,
       AlgType::kmp_on_decompressed_data,
       AlgType::kmp_on_compressed_data,
+      AlgType::lookup_kmp_on_compressed_data,
       // AlgType::simple_simd_find,
     }) {
+      std::cerr << "Running " << alg_type_to_string(algType) << ".." << std::endl;
       auto oracle = computeOracle(files.front(), pattern);
 
       NoCompressionRunner runner1;
@@ -990,13 +1029,13 @@ int main(int argc, const char* argv[]) {
       auto info1 = display(r1);
       auto info2 = display(r2);
 
-      // std::cerr << std::get<0>(info1) << " " << std::get<0>(info2) << std::endl;
+      std::cerr << std::get<0>(info1) << " " << std::get<0>(info2) << std::endl;
       if (std::get<0>(info1) != infty) assert(std::get<0>(info1) == oracle.size());
 
       // Check with the oracle.
       assert(std::get<0>(info2) == oracle.size());
 
-      auto algo = type_to_string(algType);
+      auto algo = alg_type_to_string(algType);
       if (std::get<0>(info1) != infty) {
         cout << algo << ", " << "uncompressed" << ", " << std::get<1>(info1) << ", " << std::get<2>(info1) << std::endl;
       }
