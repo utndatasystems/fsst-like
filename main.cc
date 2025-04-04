@@ -68,14 +68,14 @@ static constexpr unsigned FSST_SIZE = 255;
 
 /* Decompress a single string, inlined for speed. */
 template<typename ConsumeCode, typename ConsumeChar>
-inline size_t  /* OUT: bytesize of the decompressed string. If > size, the decoded output is truncated to size. */
+inline bool  /* OUT: bytesize of the decompressed string. If > size, the decoded output is truncated to size. */
 fsst_iterate(
   const fsst_decoder_t *decoder,  /* IN: use this symbol table for compression. */
   size_t lenIn,             /* IN: byte-length of compressed string. */
   const unsigned char *strIn,     /* IN: compressed string. */
   size_t size,              /* IN: byte-length of output buffer. */
-  ConsumeCode&& consume_code,
-  ConsumeChar&& consume_char
+  ConsumeChar&& consume_char,
+  ConsumeCode&& consume_code
 ) {
    unsigned char*__restrict__ len = (unsigned char* __restrict__) decoder->len;
   //  unsigned char*__restrict__ strOut = (unsigned char* __restrict__) output;
@@ -85,44 +85,49 @@ fsst_iterate(
 #define FSST_UNALIGNED_STORE(dst,src) memcpy((unsigned long long*) (dst), &(src), sizeof(unsigned long long))
 #if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
 
+  // TODO: Remove the stuff with `posOut`. Like everything.
    while (posOut+32 <= size && posIn+4 <= lenIn) {
       unsigned int nextBlock, escapeMask;
       memcpy(&nextBlock, strIn+posIn, sizeof(unsigned int));
       escapeMask = (nextBlock&0x80808080u)&((((~nextBlock)&0x7F7F7F7Fu)+0x7F7F7F7Fu)^0x80808080u);
       if (escapeMask == 0) {
-         code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
-         code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
-         code = strIn[posIn++]; consume_code(code); posOut += len[code]; //FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
-         code = strIn[posIn++]; consume_code(code); posOut += len[code]; //FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+         code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+         code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+         code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; //FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+         code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; //FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
      } else { 
          unsigned long firstEscapePos=__builtin_ctzl((unsigned long long) escapeMask)>>3;
+         std::cerr << "firstEscapePos=" << firstEscapePos << std::endl;
          switch(firstEscapePos) { /* Duff's device */
-         case 3: code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
+         case 3: code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
                  // fall through
-         case 2: code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
+         case 2: code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
                  // fall through
-         case 1: code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
+         case 1: code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
                  // fall through
-         case 0: posIn+=2; consume_char(strIn[posIn - 1]); posOut++; // strOut[posOut++] =  strIn[posIn-1]; /* decompress an escaped byte */
+         case 0: posIn+=2; if (!consume_char(strIn[posIn - 1])) return true; posOut++; // strOut[posOut++] =  strIn[posIn-1]; /* decompress an escaped byte */
          }
       }
    }
    if (posOut+32 <= size) { // handle the possibly 3 last bytes without a loop
-      if (posIn+2 <= lenIn) { 
-      	 consume_char(strIn[posIn + 1]); // strOut[posOut] = strIn[posIn+1]; 
-         if (strIn[posIn] != FSST_ESC) {
-            code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+      if (posIn+2 <= lenIn) {
+        if (strIn[posIn] != FSST_ESC) {
+            code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
             if (strIn[posIn] != FSST_ESC) {
-               code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+               code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
             } else { 
-               posIn += 2; consume_char(strIn[posIn - 1]); posOut++; // strOut[posOut++] = strIn[posIn-1]; 
+               posIn += 2; if (!consume_char(strIn[posIn - 1])) return true; posOut++; // strOut[posOut++] = strIn[posIn-1]; 
             }
          } else {
+            // Consume the regualr byte.
+            if (!consume_char(strIn[posIn + 1]))
+              return true;
+            
             posIn += 2; posOut++; // posOut++;
          } 
       }
       if (posIn < lenIn) { // last code cannot be an escape
-         code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+         code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
       }
    }
 #else
@@ -142,11 +147,11 @@ fsst_iterate(
          unsigned char* __restrict__ symbolPointer = ((unsigned char* __restrict__) &symbol[code]) - posWrite;
          if ((posOut = endWrite) > size) endWrite = size;
          for(; posWrite < endWrite; posWrite++) { /* only write if there is room */
-            consume_char(symbolPointer[posWrite]); // strOut[posWrite] = symbolPointer[posWrite];
+            if (!consume_char(symbolPointer[posWrite])) return true; // strOut[posWrite] = symbolPointer[posWrite];
          }
       } else {
          if (posOut < size) {
-            consume_char(strIn[posIn]); // strOut[posOut] = strIn[posIn]; /* idem */
+            if (!consume_char(strIn[posIn])) return true; // strOut[posOut] = strIn[posIn]; /* idem */
          }
          posIn++; posOut++; 
       } 
@@ -225,6 +230,8 @@ public:
   }
 
   void accept(char c) {
+    // TODO: Maybe optimize this when `curr_state` is anyway always 0.
+    // TODO: Like we should optimize for the last if.
     while ((curr_state > 0) && (P[curr_state] != c)) {
       curr_state = pi[curr_state - 1];
     }
@@ -233,23 +240,14 @@ public:
       ++curr_state;
   }
 
-  // void accept(unsigned symbol_index) {
-  //   while ((curr_state > 0) && (P[curr_state] != c)) {
-  //     curr_state = pi[curr_state - 1];
-  //   }
+  void accept_symbol(size_t code) {
+    for (auto c : fsst_symbols[code]) {
+      accept(c);
 
-  //   if (P[curr_state] == c)
-  //     ++curr_state;
-  // }
-
-  // void accept_symbol(symbol) {
-  //   for letter in symbol.val:
-  //     self.accept_letter(letter)
-
-  //     # Already reached the final state?
-  //     if self.curr_state == len(self.pattern):
-  //       return
-      
+      if (curr_state == m)
+        return;
+    }
+  }
 
   bool match(const std::string& text) {
     // Init.
@@ -259,6 +257,10 @@ public:
     for (unsigned index = 0, limit = text.size(); index != limit; ++index) {
       accept(text[index]);
 
+      // TODO: Here, we can have two paths.
+      // TODO: If `curr_state` is very far from the end, don't have this `if` here.
+      // TODO: Otherwise, have it.
+      // TODO: But maybe only when necessary (like traverse until some point and then switch).
       if (curr_state == m)
         return true;
     }
@@ -280,17 +282,18 @@ public:
   }
 
   bool inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
-    auto consume_code = [this](size_t code) {
-      std::cerr << "<" << code << ">";
-    };
-
     auto consume_char = [this](unsigned char c) {
-      std::cerr << c;
+      accept(c);
+      return curr_state != m;
     };
 
-    auto len = fsst_iterate(decoder, lenIn, strIn, size, consume_code, consume_char);
-    std::cerr << std::endl;
-    return true;
+    auto consume_code = [this](size_t code) {
+      assert(code < fsst_size);
+      accept_symbol(code);
+      return curr_state != m;
+    };
+
+    return fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
   }
 
 private:
@@ -320,6 +323,27 @@ private:
       // Store the state.
       pi[q] = k;
     }
+  }
+};
+
+class DummyStateMachine : public StateMachine {
+public:
+  using StateMachine::StateMachine;
+
+  // This is the best we could achieve with KMP.
+  bool inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+    auto dummy_consume_char = [this](unsigned char c) {
+      ++c;
+      return false;
+    };
+
+    auto dummy_consume_code = [this](size_t code) {
+      ++code;
+      return false;
+    };
+
+    fsst_iterate(decoder, lenIn, strIn, size, dummy_consume_char, dummy_consume_code);
+    return true;
   }
 };
 
@@ -483,7 +507,7 @@ class NoCompressionRunner : public CompressionRunner {
     return count;
   }
 
-  uint64_t runLike(std::vector<char>& target, const std::string& pattern, AlgType algType, const std::vector<unsigned>& oracle) override {
+  uint64_t runLike(std::vector<char>& target, const std::string& pattern, AlgType algType, const std::vector<unsigned>& /* oracle */) override {
     switch (algType) {
       case AlgType::cpp_find: return run_cpp_find(target, pattern);
       case AlgType::cpp_regex: return run_cpp_regex(target, pattern);
@@ -695,8 +719,10 @@ class FSSTCompressionRunner : public CompressionRunner {
     char* writer = target.data();
     auto writer_limit = writer + target.size();
 
+    // Init the machine.
     auto stateMachine = StateMachine(pattern);
 
+    // Init the state lookup.
     stateMachine.init_state_lookup(decoder);
 
     auto data = compressedData.data();
@@ -704,13 +730,18 @@ class FSSTCompressionRunner : public CompressionRunner {
     size_t count = 0;
     for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
       auto start = index ? offsets[index - 1] : 0, end = offsets[index];
-      unsigned len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+
+      // Check.
+      auto ans = stateMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
 
       // Match?
-      if (stateMachine.match(writer, len)) {
+      if (ans) {
         ++count;
-        writer[len] = '\n';
-        writer += len + 1;
+
+        // Decompress.
+        unsigned new_len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+        writer[new_len] = '\n';
+        writer += new_len + 1;
       }
     }
     return count;
@@ -720,7 +751,7 @@ class FSSTCompressionRunner : public CompressionRunner {
     char* writer = target.data();
     auto writer_limit = writer + target.size();
 
-    StateMachine stateMachine(pattern);
+    DummyStateMachine dummyStateMachine(pattern);
 
     auto data = compressedData.data();
     auto offsets = this->offsets.data();
@@ -729,13 +760,7 @@ class FSSTCompressionRunner : public CompressionRunner {
       auto start = index ? offsets[index - 1] : 0, end = offsets[index];
       // unsigned len = fsst_iterate(&decoder, end - start, data + start, writer_limit - writer);
 
-      stateMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
-
-      auto tmp = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
-
-      std::cerr << std::string_view(writer, tmp) << std::endl;
-
-      break;
+      dummyStateMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
 
       if ((count != oracle.size()) && (index == oracle[count])) {
         ++count;
@@ -951,7 +976,6 @@ int main(int argc, const char* argv[]) {
       // AlgType::simple_simd_find,
     }) {
       auto oracle = computeOracle(files.front(), pattern);
-      std::cerr << "oracle.size=" << oracle.size() << std::endl;
 
       NoCompressionRunner runner1;
       auto r1 = doLike(runner1, files.front(), pattern, algType, oracle);
@@ -966,7 +990,7 @@ int main(int argc, const char* argv[]) {
 
       // Same count.
       assert(std::get<0>(info1) == oracle.size());
-      assert(std::get<0>(info1) == std::get<0>(info2));
+      assert(std::get<0>(info2) == oracle.size());
 
       auto algo = type_to_string(algType);
       cout << algo << ", " << "vanilla" << ", " << std::get<1>(info1) << ", " << std::get<2>(info1) << std::endl;
