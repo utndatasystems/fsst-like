@@ -505,9 +505,6 @@ class NoCompressionRunner : public CompressionRunner {
       writer += len + 1;
     }
 
-    if(count != 4425) {
-      std::cout << "count: " << count << std::endl;
-      throw;}
     return count;
   }
 
@@ -1005,15 +1002,17 @@ int main(int argc, const char* argv[]) {
   } else if (method == "like") {
     assert(files.size() == 1);
 
-    cout << "algo, type, time [ms], throughput [#tuples / s]" << endl;
+    // The ranking.
+    std::vector<std::tuple<std::string, AlgType, double, double>> ranking;
+
     for (auto algType : {
+      AlgType::simple_simd_find,
       AlgType::cpp_find,
       AlgType::cpp_memmem,
       AlgType::kmp_lower_bound,
       AlgType::kmp_on_decompressed_data,
       AlgType::kmp_on_compressed_data,
       AlgType::lookup_kmp_on_compressed_data,
-      // AlgType::simple_simd_find,
     }) {
       std::cerr << "Running " << alg_type_to_string(algType) << ".." << std::endl;
       auto oracle = computeOracle(files.front(), pattern);
@@ -1030,17 +1029,43 @@ int main(int argc, const char* argv[]) {
       auto info2 = display(r2);
 
       std::cerr << std::get<0>(info1) << " " << std::get<0>(info2) << std::endl;
-      if (std::get<0>(info1) != infty) assert(std::get<0>(info1) == oracle.size());
 
       // Check with the oracle.
-      assert(std::get<0>(info2) == oracle.size());
+      if (std::get<0>(info1) != infty) assert(std::get<0>(info1) == oracle.size());
+      if (std::get<0>(info2) != infty) assert(std::get<0>(info2) == oracle.size());
 
-      auto algo = alg_type_to_string(algType);
+      // Add uncompressed.
       if (std::get<0>(info1) != infty) {
-        cout << algo << ", " << "uncompressed" << ", " << std::get<1>(info1) << ", " << std::get<2>(info1) << std::endl;
+        ranking.push_back({
+          "uncompressed",
+          algType,
+          std::get<1>(info1),
+          std::get<2>(info1)
+        });
       }
-      cout << algo << ", " << "fsst" << ", " << std::get<1>(info2) << ", " << std::get<2>(info2) << std::endl;
-      cout << std::endl;
+
+      // Add FSST.
+      if (std::get<0>(info2) != infty) {
+        ranking.push_back({
+          "fsst",
+          algType,
+          std::get<1>(info2),
+          std::get<2>(info2)
+        });
+      }
+    }
+
+    // Sort by the time.
+    std::sort(ranking.begin(), ranking.end(), [](const auto& a, const auto& b) {
+        return std::get<2>(a) < std::get<2>(b);
+    });
+
+    // And print.
+    cout << "\nalgo, type, time [ms], throughput [#tuples / s]" << endl;
+    for (auto elem : ranking) {
+      auto data_type = std::get<0>(elem);
+      auto algo = alg_type_to_string(std::get<1>(elem));
+      cout << algo << ", " << data_type << ", " << std::get<2>(elem) << ", " << std::get<3>(elem) << std::endl;
     }
   } else {
     cerr << "unknown method " << method << endl;
