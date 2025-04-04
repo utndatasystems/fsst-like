@@ -90,39 +90,39 @@ fsst_iterate(
       memcpy(&nextBlock, strIn+posIn, sizeof(unsigned int));
       escapeMask = (nextBlock&0x80808080u)&((((~nextBlock)&0x7F7F7F7Fu)+0x7F7F7F7Fu)^0x80808080u);
       if (escapeMask == 0) {
-         code = strIn[posIn++]; consume_code(code);
-         code = strIn[posIn++]; consume_code(code); // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
-         code = strIn[posIn++]; consume_code(code); //FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
-         code = strIn[posIn++]; consume_code(code); //FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+         code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+         code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+         code = strIn[posIn++]; consume_code(code); posOut += len[code]; //FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+         code = strIn[posIn++]; consume_code(code); posOut += len[code]; //FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
      } else { 
          unsigned long firstEscapePos=__builtin_ctzl((unsigned long long) escapeMask)>>3;
          switch(firstEscapePos) { /* Duff's device */
-         case 3: code = strIn[posIn++]; consume_code(code); // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
+         case 3: code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
                  // fall through
-         case 2: code = strIn[posIn++]; consume_code(code); // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
+         case 2: code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
                  // fall through
-         case 1: code = strIn[posIn++]; consume_code(code); // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
+         case 1: code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
                  // fall through
-         case 0: posIn+=2; consume_char(strIn[posIn - 1]); // strOut[posOut++] =  strIn[posIn-1]; /* decompress an escaped byte */
+         case 0: posIn+=2; consume_char(strIn[posIn - 1]); posOut++; // strOut[posOut++] =  strIn[posIn-1]; /* decompress an escaped byte */
          }
       }
    }
    if (posOut+32 <= size) { // handle the possibly 3 last bytes without a loop
       if (posIn+2 <= lenIn) { 
-      	 consume_char(strIn[posIn + 1]); //  strOut[posOut] = strIn[posIn+1]; 
+      	 consume_char(strIn[posIn + 1]); // strOut[posOut] = strIn[posIn+1]; 
          if (strIn[posIn] != FSST_ESC) {
-            code = strIn[posIn++]; consume_code(code); // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+            code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
             if (strIn[posIn] != FSST_ESC) {
-               code = strIn[posIn++]; consume_code(code); // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+               code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
             } else { 
-               posIn += 2; consume_char(strIn[posIn - 1]); // strOut[posOut++] = strIn[posIn-1]; 
+               posIn += 2; consume_char(strIn[posIn - 1]); posOut++; // strOut[posOut++] = strIn[posIn-1]; 
             }
          } else {
-            posIn += 2; posOut++; 
+            posIn += 2; posOut++; // posOut++;
          } 
       }
       if (posIn < lenIn) { // last code cannot be an escape
-         code = strIn[posIn++]; consume_code(code); // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+         code = strIn[posIn++]; consume_code(code); posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
       }
    }
 #else
@@ -281,17 +281,15 @@ public:
 
   bool inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
     auto consume_code = [this](size_t code) {
-      if (code > 0) {
-        code += 1;
-        // potentially do something with code
-      }
+      std::cerr << "<" << code << ">";
     };
 
     auto consume_char = [this](unsigned char c) {
-      if (c > 49) c += 1;
+      std::cerr << c;
     };
 
     auto len = fsst_iterate(decoder, lenIn, strIn, size, consume_code, consume_char);
+    std::cerr << std::endl;
     return true;
   }
 
@@ -372,6 +370,9 @@ class NoCompressionRunner : public CompressionRunner {
     char* writer = target.data();
     size_t count = 0;
     for (unsigned index = 0, limit = data.size(); index != limit; ++index) {
+      if (!index) {
+        std::cerr << "the first:" << data[index] << std::endl;
+      }
       if (data[index].find(pattern) != std::string::npos) {
         ++count;
         auto len = data[index].size();
@@ -729,6 +730,12 @@ class FSSTCompressionRunner : public CompressionRunner {
       // unsigned len = fsst_iterate(&decoder, end - start, data + start, writer_limit - writer);
 
       stateMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
+
+      auto tmp = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+
+      std::cerr << std::string_view(writer, tmp) << std::endl;
+
+      break;
 
       if ((count != oracle.size()) && (index == oracle[count])) {
         ++count;
