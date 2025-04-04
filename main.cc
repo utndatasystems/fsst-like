@@ -436,22 +436,23 @@ class NoCompressionRunner : public CompressionRunner {
     uint64_t pattern_mask = uint64_t(0xffffffffffffffff) >> (8 * (8 - pattern_len));
     for (unsigned index = 0, limit = data.size(); index != limit; ++index) {
 
-      // Match?
+      // Fast path for full 8 byte blocks in corps.
       const string& corps = data[index];
       unsigned corps_len = corps.size();
       unsigned i = 0;
       if(corps_len > 8) {
         for (; i < corps_len - 8; i++) {
-          uint64_t s_block = Memory::Load<uint64_t>(corps.data() + i);
-          if (((s_block ^ pattern_block) & pattern_mask) == 0) {
+          uint64_t corps_block = Memory::Load<uint64_t>(corps.data() + i);
+          if (((corps_block ^ pattern_block) & pattern_mask) == 0) {
             goto match;
           }
         }
       }
 
+      // Handle last 8 byte, individually.
       for (; i < corps_len - pattern_len + 1; i++) {
-        uint64_t s_block = Memory::LoadSafe8(corps.data() + i, corps_len - i);
-        if (((s_block ^ pattern_block) & pattern_mask) == 0) {
+        uint64_t corps_block = Memory::LoadSafe8(corps.data() + i, corps_len - i);
+        if (((corps_block ^ pattern_block) & pattern_mask) == 0) {
           goto match;
         }
       }
