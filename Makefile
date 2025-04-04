@@ -1,6 +1,9 @@
 SHELL := /bin/bash
 
-OPT=-O3 -DNDEBUG
+OPT=-O3
+
+# For release mode
+# OPT=-O3 -DNDEBUG
 
 all: main
 clean:

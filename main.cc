@@ -20,6 +20,7 @@
 #include "Memory.hpp"
 #include <cassert>
 #include <regex>
+#include <limits>
 #include <unordered_map>
 #include <algorithm>
 #include <fstream>
@@ -63,6 +64,7 @@ std::string type_to_string(AlgType alg) {
   }
 }
 
+static constexpr size_t infty = std::numeric_limits<size_t>::max();
 static constexpr unsigned FSST_SIZE = 255;
 #define FSST_CORRUPT 32774747032022883 /* 7-byte number in little endian containing "corrupt" */
 
@@ -97,7 +99,6 @@ fsst_iterate(
          code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; //FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
      } else { 
          unsigned long firstEscapePos=__builtin_ctzl((unsigned long long) escapeMask)>>3;
-         std::cerr << "firstEscapePos=" << firstEscapePos << std::endl;
          switch(firstEscapePos) { /* Duff's device */
          case 3: code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code];
                  // fall through
@@ -159,7 +160,7 @@ fsst_iterate(
      assert(0); //  strOut[size-1] = 0;
    }
   //  std::cerr << std::endl;
-   return posOut; /* full size of decompressed string (could be >size, then the actually decompressed part) */
+   return false; /* full size of decompressed string (could be >size, then the actually decompressed part) */
 }
 
 class StateMachine {
@@ -282,12 +283,16 @@ public:
   }
 
   bool inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+    // Init.
+    init_state();
+
     auto consume_char = [this](unsigned char c) {
       accept(c);
       return curr_state != m;
     };
 
     auto consume_code = [this](size_t code) {
+      // TODO: Remove this assert at the end.
       assert(code < fsst_size);
       accept_symbol(code);
       return curr_state != m;
@@ -394,9 +399,6 @@ class NoCompressionRunner : public CompressionRunner {
     char* writer = target.data();
     size_t count = 0;
     for (unsigned index = 0, limit = data.size(); index != limit; ++index) {
-      if (!index) {
-        std::cerr << "the first:" << data[index] << std::endl;
-      }
       if (data[index].find(pattern) != std::string::npos) {
         ++count;
         auto len = data[index].size();
@@ -514,7 +516,7 @@ class NoCompressionRunner : public CompressionRunner {
       case AlgType::cpp_memmem: return run_cpp_memmem(target, pattern);
       case AlgType::kmp_on_decompressed_data: return run_kmp_on_decompressed_data(target, pattern);
       case AlgType::simple_simd_find: return run_simple_simd_find(target, pattern);
-      default: return 0;
+      default: return infty;
     }
   }
 };
@@ -782,7 +784,7 @@ class FSSTCompressionRunner : public CompressionRunner {
       case AlgType::kmp_lower_bound: return run_kmp_lower_bound(target, pattern, oracle);
       case AlgType::kmp_on_decompressed_data: return run_kmp_on_decompressed_data(target, pattern);
       case AlgType::kmp_on_compressed_data: return run_kmp_on_compressed_data(target, pattern);
-      default: return 0;
+      default: return infty;
     }
   }
 };
@@ -961,7 +963,7 @@ int main(int argc, const char* argv[]) {
     assert(std::get<0>(info1) == std::get<0>(info2));
 
     cout << "type\ttime [ms]\t throughput [#tuples / s]" << endl;
-    cout << "vanilla" << "\t" << std::get<1>(info1) << "\t" << std::get<2>(info1) << std::endl;
+    cout << "uncompressed" << "\t" << std::get<1>(info1) << "\t" << std::get<2>(info1) << std::endl;
     cout << "fsst" << "\t" << std::get<1>(info2) << "\t" << std::get<2>(info2) << std::endl;
   } else if (method == "like") {
     assert(files.size() == 1);
@@ -988,12 +990,16 @@ int main(int argc, const char* argv[]) {
       auto info1 = display(r1);
       auto info2 = display(r2);
 
-      // Same count.
-      assert(std::get<0>(info1) == oracle.size());
+      // std::cerr << std::get<0>(info1) << " " << std::get<0>(info2) << std::endl;
+      if (std::get<0>(info1) != infty) assert(std::get<0>(info1) == oracle.size());
+
+      // Check with the oracle.
       assert(std::get<0>(info2) == oracle.size());
 
       auto algo = type_to_string(algType);
-      cout << algo << ", " << "vanilla" << ", " << std::get<1>(info1) << ", " << std::get<2>(info1) << std::endl;
+      if (std::get<0>(info1) != infty) {
+        cout << algo << ", " << "uncompressed" << ", " << std::get<1>(info1) << ", " << std::get<2>(info1) << std::endl;
+      }
       cout << algo << ", " << "fsst" << ", " << std::get<1>(info2) << ", " << std::get<2>(info2) << std::endl;
       cout << std::endl;
     }
