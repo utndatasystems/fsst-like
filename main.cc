@@ -17,6 +17,7 @@
 // You can contact the authors via the FSST source repository : https://github.com/cwida/fsst
 #include "perfevent/PerfEvent.hpp"
 #include "fsst/fsst.h"
+#include "Memory.hpp"
 #include <cassert>
 #include <regex>
 #include <unordered_map>
@@ -37,7 +38,8 @@ enum class AlgType : uint8_t {
   cpp_memmem,
   kmp_lower_bound,
   kmp_on_decompressed_data,
-  kmp_on_compressed_data
+  kmp_on_compressed_data,
+  simple_simd_find,
 };
 
 std::string type_to_string(AlgType alg) {
@@ -52,8 +54,10 @@ std::string type_to_string(AlgType alg) {
       return "lb-kmp[compressed]";
     case AlgType::kmp_on_decompressed_data:
       return "kmp[decompressed]";
-    case AlgType::kmp_on_compressed_data:
+      case AlgType::kmp_on_compressed_data:
       return "kmp[compressed]";
+    case AlgType::simple_simd_find:
+      return "simple_simd_find";
     default:
       return "Unknown";
   }
@@ -420,12 +424,61 @@ class NoCompressionRunner : public CompressionRunner {
     return count;
   }
 
+  size_t run_simple_simd_find(std::vector<char>& target, const std::string& pattern) {
+    if (pattern.size() > 8) {
+      throw std::runtime_error("Pattern too long");
+    }
+
+    char* writer = target.data();
+    size_t count = 0;
+    size_t pattern_len = pattern.size();
+    uint64_t pattern_block = Memory::LoadSafe8(pattern.data(), pattern.size());
+    uint64_t pattern_mask = uint64_t(0xffffffffffffffff) >> (8 * (8 - pattern_len));
+    for (unsigned index = 0, limit = data.size(); index != limit; ++index) {
+
+      // Match?
+      const string& corps = data[index];
+      unsigned corps_len = corps.size();
+      unsigned i = 0;
+      if(corps_len > 8) {
+        for (; i < corps_len - 8; i++) {
+          uint64_t s_block = Memory::Load<uint64_t>(corps.data() + i);
+          if (((s_block ^ pattern_block) & pattern_mask) == 0) {
+            goto match;
+          }
+        }
+      }
+
+      for (; i < corps_len - pattern_len + 1; i++) {
+        uint64_t s_block = Memory::LoadSafe8(corps.data() + i, corps_len - i);
+        if (((s_block ^ pattern_block) & pattern_mask) == 0) {
+          goto match;
+        }
+      }
+
+      continue;
+
+      match:
+      ++count;
+      auto len = data[index].size();
+      memcpy(writer, data[index].data(), len);
+      writer[len] = '\n';
+      writer += len + 1;
+    }
+
+    if(count != 4425) {
+      std::cout << "count: " << count << std::endl;
+      throw;}
+    return count;
+  }
+
   uint64_t runLike(std::vector<char>& target, const std::string& pattern, AlgType algType, const std::vector<unsigned>& oracle) override {
     switch (algType) {
       case AlgType::cpp_find: return run_cpp_find(target, pattern);
       case AlgType::cpp_regex: return run_cpp_regex(target, pattern);
       case AlgType::cpp_memmem: return run_cpp_memmem(target, pattern);
       case AlgType::kmp_on_decompressed_data: return run_kmp_on_decompressed_data(target, pattern);
+      case AlgType::simple_simd_find: return run_simple_simd_find(target, pattern);
       default: return 0;
     }
   }
@@ -873,7 +926,8 @@ int main(int argc, const char* argv[]) {
       AlgType::cpp_memmem,
       AlgType::kmp_lower_bound,
       AlgType::kmp_on_decompressed_data,
-      AlgType::kmp_on_compressed_data
+      AlgType::kmp_on_compressed_data,
+      AlgType::simple_simd_find,
     }) {
       auto oracle = computeOracle(files.front(), pattern);
       std::cerr << "oracle.size=" << oracle.size() << std::endl;
