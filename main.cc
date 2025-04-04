@@ -37,11 +37,26 @@ enum class AlgType : uint8_t {
   cpp_find,
   cpp_regex,
   cpp_memmem,
-  kmp_lower_bound,
-  kmp_on_decompressed_data,
-  kmp_on_compressed_data,
-  lookup_kmp_on_compressed_data,
+
+  // SIMD.
   simple_simd_find,
+
+  // Lower-bound.
+  kmp_lower_bound,
+
+  // KMP on decompressed data.
+  kmp_on_decompressed_data,
+  zerokmp_on_decompressed_data,
+  shiftkmp_on_decompressed_data,
+
+  // Naive KMP on compressed data.
+  kmp_on_compressed_data,
+  zerokmp_on_compressed_data,
+  shiftkmp_on_compressed_data,
+
+  // KMP w/ lookup table on compressed data.
+  lookup_kmp_on_compressed_data,
+  lookup_zerokmp_on_compressed_data,
 };
 
 std::string alg_type_to_string(AlgType alg) {
@@ -56,10 +71,18 @@ std::string alg_type_to_string(AlgType alg) {
       return "lb-kmp[compressed]";
     case AlgType::kmp_on_decompressed_data:
       return "kmp[decompressed]";
+    case AlgType::zerokmp_on_decompressed_data:
+      return "zerokmp[decompressed]";
+    case AlgType::shiftkmp_on_decompressed_data:
+      return "shiftkmp[decompressed]";
     case AlgType::kmp_on_compressed_data:
       return "kmp[compressed]";
+    case AlgType::zerokmp_on_compressed_data:
+      return "zerokmp[compressed]";
     case AlgType::lookup_kmp_on_compressed_data:
       return "lookup-kmp[compressed]";
+    case AlgType::lookup_zerokmp_on_compressed_data:
+      return "lookup-zerokmp[compressed]";
     case AlgType::simple_simd_find:
       return "simple_simd_find";
     default:
@@ -166,10 +189,22 @@ fsst_iterate(
    return false; /* full size of decompressed string (could be >size, then the actually decompressed part) */
 }
 
+class ShiftMachine;
+
 class StateMachine {
+  friend class ShiftMachine;
+
 public:
   StateMachine(const std::string& pattern) : P(pattern), m(pattern.size()) {
     build_pi();
+  }
+
+  bool has_zerokmp_property() const {
+    for (unsigned index = 0; index != m; ++index) {
+      if (pi[index])
+        return false;
+    }
+    return true;
   }
 
   void init_fsst_symbols(fsst_decoder_t& fsst_decoder) {
@@ -215,11 +250,11 @@ public:
     }
   }
 
-  void init_state(unsigned pos = 0) {
+  inline void init_state(unsigned pos = 0) {
     curr_state = pos;
   }
 
-  void accept(char c) {
+  inline void accept(char c) {
     // TODO: Maybe optimize this when `curr_state` is anyway always 0.
     // TODO: Like we should optimize for the last if.
     while ((curr_state > 0) && (P[curr_state] != c)) {
@@ -230,7 +265,21 @@ public:
       ++curr_state;
   }
 
-  void accept_symbol(size_t code) {
+  inline void zerokmp_accept(char c) {
+    // Does it already match? That is, the while-loop is invalid.
+    if (P[curr_state] == c) {
+      ++curr_state;
+    } else {
+      // Then, we can set the state to 0.
+      curr_state = 0;
+
+      // And make another check.
+      if (P[curr_state] == c)
+        ++curr_state;
+    }
+  }
+
+  inline void accept_symbol(size_t code) {
     for (auto c : fsst_symbols[code]) {
       accept(c);
 
@@ -239,9 +288,36 @@ public:
     }
   }
 
-  void accept_symbol_with_lookup(size_t code) {
+  inline void zerokmp_accept_symbol(size_t code) {
+    for (auto c : fsst_symbols[code]) {
+      zerokmp_accept(c);
+
+      if (curr_state == m)
+        return;
+    }
+  }
+
+  inline void accept_symbol_with_lookup(size_t code) {
     // Use the state lookup table.
     curr_state = lookup_table[curr_state * fsst_size + code];
+  }
+
+  bool zerokmp_match(const char* ptr, unsigned len) {
+    // Init.
+    init_state();
+
+    // Iterate.
+    for (unsigned index = 0, limit = len; index != limit; ++index) {
+      zerokmp_accept(ptr[index]);
+
+      // TODO: Here, we can have two paths.
+      // TODO: If `curr_state` is very far from the end, don't have this `if` here.
+      // TODO: Otherwise, have it.
+      // TODO: But maybe only when necessary (like traverse until some point and then switch).
+      if (curr_state == m)
+        return true;
+    }
+    return false;
   }
 
   bool match(const char* ptr, unsigned len) {
@@ -284,12 +360,50 @@ public:
     return fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
   }
 
+  bool zerokmp_inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+    // Init.
+    init_state();
+
+    auto consume_char = [this](unsigned char c) {
+      zerokmp_accept(c);
+      return curr_state != m;
+    };
+
+    auto consume_code = [this](size_t code) {
+      // TODO: Remove this assert at the end.
+      assert(code < fsst_size);
+      zerokmp_accept_symbol(code);
+      return curr_state != m;
+    };
+
+    return fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
+  }
+
   bool inline_match_with_lookup(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
     // Init.
     init_state();
 
     auto consume_char = [this](unsigned char c) {
       accept(c);
+      return curr_state != m;
+    };
+
+    auto consume_code = [this](size_t code) {
+      // TODO: Remove this assert at the end.
+      assert(code < fsst_size);
+      accept_symbol_with_lookup(code);
+      return curr_state != m;
+    };
+
+    return fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
+  }
+
+  bool zerokmp_inline_match_with_lookup(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+    // Init.
+    init_state();
+
+    auto consume_char = [this](unsigned char c) {
+      zerokmp_accept(c);
       return curr_state != m;
     };
 
@@ -330,6 +444,12 @@ private:
       // Store the state.
       pi[q] = k;
     }
+
+    std::cerr << "pi:" << std::endl;
+    for (unsigned index = 0; index != m; ++index) {
+      std::cerr << pi[index] << " ";
+    }
+    std::cerr << std::endl;
   }
 };
 
@@ -352,6 +472,48 @@ public:
     fsst_iterate(decoder, lenIn, strIn, size, dummy_consume_char, dummy_consume_code);
     return true;
   }
+};
+
+class ShiftMachine {
+public:
+  ShiftMachine(StateMachine& stateMachine) : stateMachine(stateMachine) {
+    assert(!stateMachine.P.empty());
+  }
+
+  bool match(const char* ptr, unsigned len) {
+    unsigned index = 0;
+    while ((index != len) && (ptr[index] != stateMachine.P[0])) {
+      ++index;
+    }
+
+    // Nothing found here.
+    if (index == len) return false;
+
+    // Use KMP.
+    // TODO: In the future, call here, then get the state, and search again.
+    // TODO: Maybe with the trick to find the failing char.
+    return stateMachine.match(ptr + index, len);
+  }
+
+  bool inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+    auto consume_char = [this](unsigned char c) {
+      return c != stateMachine.P[0];
+    };
+
+    auto consume_code = [this](size_t code) {
+      // TODO: Remove this assert at the end.
+      assert(code < fsst_size);
+      accept_symbol(code);
+
+      auto pos = pos_cache[code];
+      return (pos == infty)
+    };
+
+    fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
+  }
+
+private:
+  StateMachine& stateMachine;
 };
 
 /// Base class for all compression tests.
@@ -716,6 +878,54 @@ class FSSTCompressionRunner : public CompressionRunner {
     return count;
   }
 
+  size_t run_zerokmp_on_decompressed_data(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    auto writer_limit = writer + target.size();
+
+    auto stateMachine = StateMachine(pattern);
+    assert(stateMachine.has_zerokmp_property());
+
+    auto data = compressedData.data();
+    auto offsets = this->offsets.data();
+    size_t count = 0;
+    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
+      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
+      unsigned len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+
+      // Match?
+      if (stateMachine.zerokmp_match(writer, len)) {
+        ++count;
+        writer[len] = '\n';
+        writer += len + 1;
+      }
+    }
+    return count;
+  }
+
+  size_t run_shiftkmp_on_decompressed_data(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    auto writer_limit = writer + target.size();
+
+    auto stateMachine = StateMachine(pattern);
+    auto shiftMachine = ShiftMachine(stateMachine);
+
+    auto data = compressedData.data();
+    auto offsets = this->offsets.data();
+    size_t count = 0;
+    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
+      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
+      unsigned len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+
+      // Match?
+      if (shiftMachine.match(writer, len)) {
+        ++count;
+        writer[len] = '\n';
+        writer += len + 1;
+      }
+    }
+    return count;
+  }
+
   size_t run_kmp_on_compressed_data(std::vector<char>& target, const std::string& pattern) {
     char* writer = target.data();
     auto writer_limit = writer + target.size();
@@ -734,6 +944,74 @@ class FSSTCompressionRunner : public CompressionRunner {
 
       // Check.
       auto ans = stateMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
+
+      // Match?
+      if (ans) {
+        ++count;
+
+        // Decompress.
+        unsigned new_len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+        writer[new_len] = '\n';
+        writer += new_len + 1;
+      }
+    }
+    return count;
+  }
+
+  size_t run_zerokmp_on_compressed_data(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    auto writer_limit = writer + target.size();
+
+    // Init the machine.
+    auto stateMachine = StateMachine(pattern);
+    assert(stateMachine.has_zerokmp_property());
+
+    // Init the FSST-symbols.
+    stateMachine.init_fsst_symbols(decoder);
+
+    auto data = compressedData.data();
+    auto offsets = this->offsets.data();
+    size_t count = 0;
+    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
+      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
+
+      // Check.
+      auto ans = stateMachine.zerokmp_inline_match(&decoder, end - start, data + start, writer_limit - writer);
+
+      // Match?
+      if (ans) {
+        ++count;
+
+        // Decompress.
+        unsigned new_len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+        writer[new_len] = '\n';
+        writer += new_len + 1;
+      }
+    }
+    return count;
+  }
+
+  size_t run_shiftkmp_on_compressed_data(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    auto writer_limit = writer + target.size();
+
+    // Init the machine.
+    auto stateMachine = StateMachine(pattern);
+    
+    // Init the FSST-symbols.
+    stateMachine.init_fsst_symbols(decoder);
+
+    // Init the shift machine.
+    auto shiftMachine = ShiftMachine(stateMachine);
+
+    auto data = compressedData.data();
+    auto offsets = this->offsets.data();
+    size_t count = 0;
+    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
+      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
+
+      // Check.
+      auto ans = shiftMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
 
       // Match?
       if (ans) {
@@ -783,6 +1061,42 @@ class FSSTCompressionRunner : public CompressionRunner {
     return count;
   }
 
+  size_t run_lookup_zerokmp_on_compressed_data(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    auto writer_limit = writer + target.size();
+
+    // Init the machine.
+    auto stateMachine = StateMachine(pattern);
+    assert(stateMachine.has_zerokmp_property());
+
+    // Init the FSST symbols.
+    stateMachine.init_fsst_symbols(decoder);
+
+    // Build the state lookup table.
+    stateMachine.build_lookup_table();
+
+    auto data = compressedData.data();
+    auto offsets = this->offsets.data();
+    size_t count = 0;
+    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
+      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
+
+      // Check.
+      auto ans = stateMachine.zerokmp_inline_match_with_lookup(&decoder, end - start, data + start, writer_limit - writer);
+
+      // Match?
+      if (ans) {
+        ++count;
+
+        // Decompress.
+        unsigned new_len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+        writer[new_len] = '\n';
+        writer += new_len + 1;
+      }
+    }
+    return count;
+  }
+
   size_t run_kmp_lower_bound(std::vector<char>& target, const std::string& pattern, const std::vector<unsigned>& oracle) {
     char* writer = target.data();
     auto writer_limit = writer + target.size();
@@ -816,8 +1130,17 @@ class FSSTCompressionRunner : public CompressionRunner {
       case AlgType::cpp_memmem: return run_cpp_memmem(target, pattern);
       case AlgType::kmp_lower_bound: return run_kmp_lower_bound(target, pattern, oracle);
       case AlgType::kmp_on_decompressed_data: return run_kmp_on_decompressed_data(target, pattern);
+      case AlgType::zerokmp_on_decompressed_data: return run_zerokmp_on_decompressed_data(target, pattern);
+      case AlgType::shiftkmp_on_decompressed_data: return run_shiftkmp_on_decompressed_data(target, pattern);
+      
+      // Nave KMP on compressed data.
       case AlgType::kmp_on_compressed_data: return run_kmp_on_compressed_data(target, pattern);
+      case AlgType::zerokmp_on_compressed_data: return run_zerokmp_on_compressed_data(target, pattern);
+      case AlgType::shiftkmp_on_compressed_data: return run_shiftkmp_on_compressed_data(target, pattern);
+      
+      // KMP w/ lookup-table on compressed data.
       case AlgType::lookup_kmp_on_compressed_data: return run_lookup_kmp_on_compressed_data(target, pattern);
+      case AlgType::lookup_zerokmp_on_compressed_data: return run_lookup_zerokmp_on_compressed_data(target, pattern);
       default: return infty;
     }
   }
@@ -1011,8 +1334,12 @@ int main(int argc, const char* argv[]) {
       AlgType::cpp_memmem,
       AlgType::kmp_lower_bound,
       AlgType::kmp_on_decompressed_data,
+      AlgType::zerokmp_on_decompressed_data,
+      AlgType::shiftkmp_on_decompressed_data,
       AlgType::kmp_on_compressed_data,
+      AlgType::zerokmp_on_compressed_data,
       AlgType::lookup_kmp_on_compressed_data,
+      AlgType::lookup_zerokmp_on_compressed_data,
     }) {
       std::cerr << "Running " << alg_type_to_string(algType) << ".." << std::endl;
       auto oracle = computeOracle(files.front(), pattern);
@@ -1055,7 +1382,7 @@ int main(int argc, const char* argv[]) {
       }
     }
 
-    // Sort by the time.
+    // Sort by the time (implicitly also by throughput).
     std::sort(ranking.begin(), ranking.end(), [](const auto& a, const auto& b) {
         return std::get<2>(a) < std::get<2>(b);
     });
