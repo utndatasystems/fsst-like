@@ -47,16 +47,15 @@ enum class AlgType : uint8_t {
   // KMP on decompressed data.
   kmp_on_decompressed_data,
   zerokmp_on_decompressed_data,
-  shiftkmp_on_decompressed_data,
 
   // Naive KMP on compressed data.
   kmp_on_compressed_data,
   zerokmp_on_compressed_data,
-  shiftkmp_on_compressed_data,
 
   // KMP w/ lookup table on compressed data.
   lookup_kmp_on_compressed_data,
   lookup_zerokmp_on_compressed_data,
+  lookup_branchless_zerokmp_on_compressed_data
 };
 
 std::string alg_type_to_string(AlgType alg) {
@@ -73,8 +72,8 @@ std::string alg_type_to_string(AlgType alg) {
       return "kmp[decompressed]";
     case AlgType::zerokmp_on_decompressed_data:
       return "zerokmp[decompressed]";
-    case AlgType::shiftkmp_on_decompressed_data:
-      return "shiftkmp[decompressed]";
+    // case AlgType::shiftkmp_on_decompressed_data:
+    //   return "shiftkmp[decompressed]";
     case AlgType::kmp_on_compressed_data:
       return "kmp[compressed]";
     case AlgType::zerokmp_on_compressed_data:
@@ -83,6 +82,8 @@ std::string alg_type_to_string(AlgType alg) {
       return "lookup-kmp[compressed]";
     case AlgType::lookup_zerokmp_on_compressed_data:
       return "lookup-zerokmp[compressed]";
+    case AlgType::lookup_branchless_zerokmp_on_compressed_data:
+      return "lookup-branchless-zerokmp[compressed]";
     case AlgType::simple_simd_find:
       return "simple_simd_find";
     default:
@@ -279,6 +280,16 @@ public:
     }
   }
 
+  inline void branchless_zerokmp_accept(char c) {
+    unsigned match1 = (P[curr_state] == c);
+    unsigned mask1 = -match1;
+
+    curr_state = curr_state & mask1;
+
+    unsigned match2 = (P[curr_state] == c);
+    curr_state += match2;
+  }
+
   inline void accept_symbol(size_t code) {
     for (auto c : fsst_symbols[code]) {
       accept(c);
@@ -302,6 +313,29 @@ public:
     curr_state = lookup_table[curr_state * fsst_size + code];
   }
 
+  // Another implementation of KMP on uncompressed data.
+  bool kmp_match(const std::string& text) { return kmp_match(text.data(), text.size()); }
+
+  // Implementation of KMP on uncompressed data.
+  bool kmp_match(const char* ptr, unsigned len) {
+    // Init.
+    init_state();
+
+    // Iterate.
+    for (unsigned index = 0, limit = len; index != limit; ++index) {
+      accept(ptr[index]);
+
+      // TODO: Here, we can have two paths.
+      // TODO: If `curr_state` is very far from the end, don't have this `if` here.
+      // TODO: Otherwise, have it.
+      // TODO: But maybe only when necessary (like traverse until some point and then switch).
+      if (curr_state == m)
+        return true;
+    }
+    return false;
+  }
+
+  // Implementation of ZeroKMP on uncompressed data.
   bool zerokmp_match(const char* ptr, unsigned len) {
     // Init.
     init_state();
@@ -320,28 +354,8 @@ public:
     return false;
   }
 
-  bool match(const char* ptr, unsigned len) {
-    // Init.
-    init_state();
-
-    // Iterate.
-    for (unsigned index = 0, limit = len; index != limit; ++index) {
-      accept(ptr[index]);
-
-      // TODO: Here, we can have two paths.
-      // TODO: If `curr_state` is very far from the end, don't have this `if` here.
-      // TODO: Otherwise, have it.
-      // TODO: But maybe only when necessary (like traverse until some point and then switch).
-      if (curr_state == m)
-        return true;
-    }
-    return false;
-  }
-
-  // Another implementation.
-  bool match(const std::string& text) { return match(text.data(), text.size()); }
-
-  bool inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+  // Implementation of KMP on FSST-encoded data.
+  bool fsst_kmp_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
     // Init.
     init_state();
 
@@ -360,7 +374,8 @@ public:
     return fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
   }
 
-  bool zerokmp_inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+  // Implementation of ZeroKMP on FSST-encoded data.
+  bool fsst_zerokmp_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
     // Init.
     init_state();
 
@@ -379,7 +394,8 @@ public:
     return fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
   }
 
-  bool inline_match_with_lookup(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+  // Implementation of LookupKMP on FSST-encoded data.
+  bool fsst_lookup_kmp_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
     // Init.
     init_state();
 
@@ -398,12 +414,33 @@ public:
     return fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
   }
 
-  bool zerokmp_inline_match_with_lookup(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+  // Implementation of LookupZeroKMP on FSST-encoded data.
+  bool fsst_lookup_zerokmp_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
     // Init.
     init_state();
 
     auto consume_char = [this](unsigned char c) {
       zerokmp_accept(c);
+      return curr_state != m;
+    };
+
+    auto consume_code = [this](size_t code) {
+      // TODO: Remove this assert at the end.
+      assert(code < fsst_size);
+      accept_symbol_with_lookup(code);
+      return curr_state != m;
+    };
+
+    return fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
+  }
+
+  // Implementation of a branchless LookupZeroKMP on FSST-encoded data.
+  bool fsst_lookup_branchless_zerokmp_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+    // Init.
+    init_state();
+
+    auto consume_char = [this](unsigned char c) {
+      branchless_zerokmp_accept(c);
       return curr_state != m;
     };
 
@@ -457,8 +494,8 @@ class DummyStateMachine : public StateMachine {
 public:
   using StateMachine::StateMachine;
 
-  // This is the best we could achieve with KMP.
-  bool inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+  // This is the best we *could* ever achieve with KMP.
+  bool fsst_kmp_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
     auto dummy_consume_char = [this](unsigned char c) {
       ++c;
       return false;
@@ -472,48 +509,6 @@ public:
     fsst_iterate(decoder, lenIn, strIn, size, dummy_consume_char, dummy_consume_code);
     return true;
   }
-};
-
-class ShiftMachine {
-public:
-  ShiftMachine(StateMachine& stateMachine) : stateMachine(stateMachine) {
-    assert(!stateMachine.P.empty());
-  }
-
-  bool match(const char* ptr, unsigned len) {
-    unsigned index = 0;
-    while ((index != len) && (ptr[index] != stateMachine.P[0])) {
-      ++index;
-    }
-
-    // Nothing found here.
-    if (index == len) return false;
-
-    // Use KMP.
-    // TODO: In the future, call here, then get the state, and search again.
-    // TODO: Maybe with the trick to find the failing char.
-    return stateMachine.match(ptr + index, len);
-  }
-
-  bool inline_match(const fsst_decoder_t* decoder, size_t lenIn, const unsigned char* strIn, size_t size) {
-    auto consume_char = [this](unsigned char c) {
-      return c != stateMachine.P[0];
-    };
-
-    auto consume_code = [this](size_t code) {
-      // TODO: Remove this assert at the end.
-      assert(code < fsst_size);
-      accept_symbol(code);
-
-      auto pos = pos_cache[code];
-      return (pos == infty)
-    };
-
-    fsst_iterate(decoder, lenIn, strIn, size, consume_char, consume_code);
-  }
-
-private:
-  StateMachine& stateMachine;
 };
 
 /// Base class for all compression tests.
@@ -597,7 +592,7 @@ class NoCompressionRunner : public CompressionRunner {
     auto stateMachine = StateMachine(pattern);
     size_t count = 0;
     for (unsigned index = 0, limit = data.size(); index != limit; ++index) {
-       if (stateMachine.match(data[index])) {
+       if (stateMachine.kmp_match(data[index])) {
         ++count;
         auto len = data[index].size();
         memcpy(writer, data[index].data(), len);
@@ -869,7 +864,7 @@ class FSSTCompressionRunner : public CompressionRunner {
       unsigned len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
 
       // Match?
-      if (stateMachine.match(writer, len)) {
+      if (stateMachine.kmp_match(writer, len)) {
         ++count;
         writer[len] = '\n';
         writer += len + 1;
@@ -902,30 +897,6 @@ class FSSTCompressionRunner : public CompressionRunner {
     return count;
   }
 
-  size_t run_shiftkmp_on_decompressed_data(std::vector<char>& target, const std::string& pattern) {
-    char* writer = target.data();
-    auto writer_limit = writer + target.size();
-
-    auto stateMachine = StateMachine(pattern);
-    auto shiftMachine = ShiftMachine(stateMachine);
-
-    auto data = compressedData.data();
-    auto offsets = this->offsets.data();
-    size_t count = 0;
-    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
-      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
-      unsigned len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
-
-      // Match?
-      if (shiftMachine.match(writer, len)) {
-        ++count;
-        writer[len] = '\n';
-        writer += len + 1;
-      }
-    }
-    return count;
-  }
-
   size_t run_kmp_on_compressed_data(std::vector<char>& target, const std::string& pattern) {
     char* writer = target.data();
     auto writer_limit = writer + target.size();
@@ -943,7 +914,7 @@ class FSSTCompressionRunner : public CompressionRunner {
       auto start = index ? offsets[index - 1] : 0, end = offsets[index];
 
       // Check.
-      auto ans = stateMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
+      auto ans = stateMachine.fsst_kmp_match(&decoder, end - start, data + start, writer_limit - writer);
 
       // Match?
       if (ans) {
@@ -976,42 +947,7 @@ class FSSTCompressionRunner : public CompressionRunner {
       auto start = index ? offsets[index - 1] : 0, end = offsets[index];
 
       // Check.
-      auto ans = stateMachine.zerokmp_inline_match(&decoder, end - start, data + start, writer_limit - writer);
-
-      // Match?
-      if (ans) {
-        ++count;
-
-        // Decompress.
-        unsigned new_len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
-        writer[new_len] = '\n';
-        writer += new_len + 1;
-      }
-    }
-    return count;
-  }
-
-  size_t run_shiftkmp_on_compressed_data(std::vector<char>& target, const std::string& pattern) {
-    char* writer = target.data();
-    auto writer_limit = writer + target.size();
-
-    // Init the machine.
-    auto stateMachine = StateMachine(pattern);
-    
-    // Init the FSST-symbols.
-    stateMachine.init_fsst_symbols(decoder);
-
-    // Init the shift machine.
-    auto shiftMachine = ShiftMachine(stateMachine);
-
-    auto data = compressedData.data();
-    auto offsets = this->offsets.data();
-    size_t count = 0;
-    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
-      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
-
-      // Check.
-      auto ans = shiftMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
+      auto ans = stateMachine.fsst_zerokmp_match(&decoder, end - start, data + start, writer_limit - writer);
 
       // Match?
       if (ans) {
@@ -1046,7 +982,7 @@ class FSSTCompressionRunner : public CompressionRunner {
       auto start = index ? offsets[index - 1] : 0, end = offsets[index];
 
       // Check.
-      auto ans = stateMachine.inline_match_with_lookup(&decoder, end - start, data + start, writer_limit - writer);
+      auto ans = stateMachine.fsst_lookup_kmp_match(&decoder, end - start, data + start, writer_limit - writer);
 
       // Match?
       if (ans) {
@@ -1082,7 +1018,43 @@ class FSSTCompressionRunner : public CompressionRunner {
       auto start = index ? offsets[index - 1] : 0, end = offsets[index];
 
       // Check.
-      auto ans = stateMachine.zerokmp_inline_match_with_lookup(&decoder, end - start, data + start, writer_limit - writer);
+      auto ans = stateMachine.fsst_lookup_zerokmp_match(&decoder, end - start, data + start, writer_limit - writer);
+
+      // Match?
+      if (ans) {
+        ++count;
+
+        // Decompress.
+        unsigned new_len = fsst_decompress(&decoder, end - start, data + start, writer_limit - writer, reinterpret_cast<unsigned char*>(writer));
+        writer[new_len] = '\n';
+        writer += new_len + 1;
+      }
+    }
+    return count;
+  }
+
+  size_t run_branchless_lookup_zerokmp_on_compressed_data(std::vector<char>& target, const std::string& pattern) {
+    char* writer = target.data();
+    auto writer_limit = writer + target.size();
+
+    // Init the machine.
+    auto stateMachine = StateMachine(pattern);
+    assert(stateMachine.has_zerokmp_property());
+
+    // Init the FSST symbols.
+    stateMachine.init_fsst_symbols(decoder);
+
+    // Build the state lookup table.
+    stateMachine.build_lookup_table();
+
+    auto data = compressedData.data();
+    auto offsets = this->offsets.data();
+    size_t count = 0;
+    for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
+      auto start = index ? offsets[index - 1] : 0, end = offsets[index];
+
+      // Check.
+      auto ans = stateMachine.fsst_lookup_branchless_zerokmp_match(&decoder, end - start, data + start, writer_limit - writer);
 
       // Match?
       if (ans) {
@@ -1109,7 +1081,7 @@ class FSSTCompressionRunner : public CompressionRunner {
     for (unsigned index = 0, limit = this->data_size; index != limit; ++index) {
       auto start = index ? offsets[index - 1] : 0, end = offsets[index];
 
-      dummyStateMachine.inline_match(&decoder, end - start, data + start, writer_limit - writer);
+      dummyStateMachine.fsst_kmp_match(&decoder, end - start, data + start, writer_limit - writer);
 
       if ((count != oracle.size()) && (index == oracle[count])) {
         ++count;
@@ -1131,16 +1103,15 @@ class FSSTCompressionRunner : public CompressionRunner {
       case AlgType::kmp_lower_bound: return run_kmp_lower_bound(target, pattern, oracle);
       case AlgType::kmp_on_decompressed_data: return run_kmp_on_decompressed_data(target, pattern);
       case AlgType::zerokmp_on_decompressed_data: return run_zerokmp_on_decompressed_data(target, pattern);
-      case AlgType::shiftkmp_on_decompressed_data: return run_shiftkmp_on_decompressed_data(target, pattern);
       
       // Nave KMP on compressed data.
       case AlgType::kmp_on_compressed_data: return run_kmp_on_compressed_data(target, pattern);
       case AlgType::zerokmp_on_compressed_data: return run_zerokmp_on_compressed_data(target, pattern);
-      case AlgType::shiftkmp_on_compressed_data: return run_shiftkmp_on_compressed_data(target, pattern);
       
       // KMP w/ lookup-table on compressed data.
       case AlgType::lookup_kmp_on_compressed_data: return run_lookup_kmp_on_compressed_data(target, pattern);
       case AlgType::lookup_zerokmp_on_compressed_data: return run_lookup_zerokmp_on_compressed_data(target, pattern);
+      case AlgType::lookup_branchless_zerokmp_on_compressed_data: return run_branchless_lookup_zerokmp_on_compressed_data(target, pattern);
       default: return infty;
     }
   }
@@ -1335,11 +1306,11 @@ int main(int argc, const char* argv[]) {
       AlgType::kmp_lower_bound,
       AlgType::kmp_on_decompressed_data,
       AlgType::zerokmp_on_decompressed_data,
-      AlgType::shiftkmp_on_decompressed_data,
       AlgType::kmp_on_compressed_data,
       AlgType::zerokmp_on_compressed_data,
       AlgType::lookup_kmp_on_compressed_data,
       AlgType::lookup_zerokmp_on_compressed_data,
+      AlgType::lookup_zerokmp_on_compressed_data
     }) {
       std::cerr << "Running " << alg_type_to_string(algType) << ".." << std::endl;
       auto oracle = computeOracle(files.front(), pattern);
