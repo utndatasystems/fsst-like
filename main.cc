@@ -878,7 +878,8 @@ class FSSTCompressionRunner : public CompressionRunner {
     auto writer_limit = writer + target.size();
 
     auto stateMachine = StateMachine(pattern);
-    assert(stateMachine.has_zerokmp_property());
+    if (!stateMachine.has_zerokmp_property())
+      return infty;
 
     auto data = compressedData.data();
     auto offsets = this->offsets.data();
@@ -935,7 +936,8 @@ class FSSTCompressionRunner : public CompressionRunner {
 
     // Init the machine.
     auto stateMachine = StateMachine(pattern);
-    assert(stateMachine.has_zerokmp_property());
+    if (!stateMachine.has_zerokmp_property())
+      return infty;
 
     // Init the FSST-symbols.
     stateMachine.init_fsst_symbols(decoder);
@@ -1003,7 +1005,8 @@ class FSSTCompressionRunner : public CompressionRunner {
 
     // Init the machine.
     auto stateMachine = StateMachine(pattern);
-    assert(stateMachine.has_zerokmp_property());
+    if (!stateMachine.has_zerokmp_property())
+      return infty;
 
     // Init the FSST symbols.
     stateMachine.init_fsst_symbols(decoder);
@@ -1033,13 +1036,14 @@ class FSSTCompressionRunner : public CompressionRunner {
     return count;
   }
 
-  size_t run_branchless_lookup_zerokmp_on_compressed_data(std::vector<char>& target, const std::string& pattern) {
+  size_t run_lookup_branchless_zerokmp_on_compressed_data(std::vector<char>& target, const std::string& pattern) {
     char* writer = target.data();
     auto writer_limit = writer + target.size();
 
     // Init the machine.
     auto stateMachine = StateMachine(pattern);
-    assert(stateMachine.has_zerokmp_property());
+    if (!stateMachine.has_zerokmp_property())
+      return infty;
 
     // Init the FSST symbols.
     stateMachine.init_fsst_symbols(decoder);
@@ -1111,7 +1115,7 @@ class FSSTCompressionRunner : public CompressionRunner {
       // KMP w/ lookup-table on compressed data.
       case AlgType::lookup_kmp_on_compressed_data: return run_lookup_kmp_on_compressed_data(target, pattern);
       case AlgType::lookup_zerokmp_on_compressed_data: return run_lookup_zerokmp_on_compressed_data(target, pattern);
-      case AlgType::lookup_branchless_zerokmp_on_compressed_data: return run_branchless_lookup_zerokmp_on_compressed_data(target, pattern);
+      case AlgType::lookup_branchless_zerokmp_on_compressed_data: return run_lookup_branchless_zerokmp_on_compressed_data(target, pattern);
       default: return infty;
     }
   }
@@ -1310,7 +1314,7 @@ int main(int argc, const char* argv[]) {
       AlgType::zerokmp_on_compressed_data,
       AlgType::lookup_kmp_on_compressed_data,
       AlgType::lookup_zerokmp_on_compressed_data,
-      AlgType::lookup_zerokmp_on_compressed_data
+      AlgType::lookup_branchless_zerokmp_on_compressed_data
     }) {
       std::cerr << "Running " << alg_type_to_string(algType) << ".." << std::endl;
       auto oracle = computeOracle(files.front(), pattern);
@@ -1355,7 +1359,7 @@ int main(int argc, const char* argv[]) {
 
     // Sort by the time (implicitly also by throughput).
     std::sort(ranking.begin(), ranking.end(), [](const auto& a, const auto& b) {
-        return std::get<2>(a) < std::get<2>(b);
+      return std::get<2>(a) < std::get<2>(b);
     });
 
     // And print.
