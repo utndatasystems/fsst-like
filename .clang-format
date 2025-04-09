@@ -1,0 +1,15 @@
+# Run manually to reformat a file:
+# clang-format -i --style=file <file>
+Language:        Cpp
+BasedOnStyle: Google
+
+ColumnLimit: 0
+IndentWidth: 3
+AccessModifierOffset: -3 # No indentation for public/private
+FixNamespaceComments: false # No stupid 'end of namespace comment', use an IDE
+IncludeBlocks: Merge # No blank lines in includes
+BreakBeforeBraces: Stroustrup # New line before the bracer of a function
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+SpacesBeforeTrailingComments: 1 # Everything else would be madness
+BreakConstructorInitializers: BeforeComma
