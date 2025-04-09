@@ -9,7 +9,7 @@ ifdef NDEBUG
 endif
 
 # Build/link the main.
-main: main.cpp fsst/build/libfsst.a bin/BenchmarkDriver.o bin/FsstWrapper.o
+main: main.cpp fsst/build/libfsst.a bin/BenchmarkDriver.o bin/FsstWrapper.o src/algos/StdFind.hpp
 	$(CXX) -o main $(OPT) main.cpp -flto bin/BenchmarkDriver.o bin/FsstWrapper.o -Lfsst/build -lfsst 
 
 # Build for individual files.

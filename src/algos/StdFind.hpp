@@ -1,5 +1,6 @@
 #pragma once
 // -------------------------------------------------------------------------------------
+#include <algorithm>
 #include "BenchmarkDriver.hpp"
 // -------------------------------------------------------------------------------------
 class StdFindEngine : public Engine {
@@ -12,10 +13,7 @@ public:
    {
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
-         uint32_t start = block.offsets[row_idx];
-         uint32_t end = block.offsets[row_idx + 1];
-         std::string_view text(block.data.data() + start, end - start);
-         if (text.find(pattern) != std::string_view::npos) {
+         if (block.GetRow(row_idx).find(pattern) != std::string_view::npos) {
             result[match_count++] = row_idx;
          }
       }
@@ -27,9 +25,7 @@ public:
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
          // Get encoded row.
-         uint32_t start = block.offsets[row_idx];
-         uint32_t end = block.offsets[row_idx + 1];
-         std::string_view compressed_text(block.data.data() + start, end - start);
+         std::string_view compressed_text = block.GetRow(row_idx);
 
          // Decode the row.
          uint32_t ideal_buffer_size = block.decoder.GetIdealBufferSize(compressed_text.size());
@@ -56,7 +52,13 @@ class StdFindEngineFactory : public EngineFactory {
 public:
    std::unique_ptr<Engine> Create(std::string_view pattern) final
    {
-      return std::make_unique<StdFindEngine>(pattern);
+      if (std::count(pattern.begin(), pattern.end(), '%') == 2 &&
+          pattern.find('_') == std::string::npos &&
+          pattern.starts_with('%') &&
+          pattern.ends_with('%')) {
+         return std::make_unique<StdFindEngine>(pattern.substr(1, pattern.size() - 2));
+      }
+      return nullptr;
    }
 
    std::string GetName() final { return "std_find"; }

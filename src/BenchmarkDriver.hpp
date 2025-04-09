@@ -1,5 +1,6 @@
 #pragma once
 // -------------------------------------------------------------------------------------
+#include <bitset>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -13,14 +14,29 @@ constexpr uint32_t BLOCK_SIZE = 64 * 1024;
 struct FsstBlock {
    uint32_t row_count;
    std::vector<char> data;
-   std::array<uint32_t, BLOCK_SIZE + 1> offsets;
    FsstDecoder decoder;
+   std::bitset<256> used_chars;
+   std::array<uint32_t, BLOCK_SIZE + 1> offsets;
+
+   std::string_view GetRow(uint32_t row_idx) const
+   {
+      uint32_t start = offsets[row_idx];
+      uint32_t end = offsets[row_idx + 1];
+      return std::string_view(data.data() + start, end - start);
+   }
 };
 // -------------------------------------------------------------------------------------
 struct RawBlock {
    uint32_t row_count;
    std::vector<char> data;
    std::array<uint32_t, BLOCK_SIZE + 1> offsets;
+
+   std::string_view GetRow(uint32_t row_idx) const
+   {
+      uint32_t start = offsets[row_idx];
+      uint32_t end = offsets[row_idx + 1];
+      return std::string_view(data.data() + start, end - start);
+   }
 };
 // -------------------------------------------------------------------------------------
 class Engine {
@@ -48,5 +64,7 @@ private:
    std::vector<std::unique_ptr<EngineFactory>> engine_factories;
    std::vector<RawBlock> raw_blocks;
    std::vector<FsstBlock> fsst_blocks;
+
+   FsstBlock CreateFsstBlock(const RawBlock& raw_block) const;
 };
 // -------------------------------------------------------------------------------------
