@@ -18,7 +18,7 @@ int main(int, char**)
    std::cout << "" << std::endl;
    std::cout << "prefix" << std::endl;
    std::cout << "------" << std::endl;
-   driver.LoadBlocks("data/l_comment.csv");
+   driver.LoadBlocks("data/p_type.csv");
    driver.Run("MEDIUM POLISHED%"); // not like
    driver.Run("PROMO%");
 

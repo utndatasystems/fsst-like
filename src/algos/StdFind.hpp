@@ -3,9 +3,10 @@
 #include <algorithm>
 #include "BenchmarkDriver.hpp"
 // -------------------------------------------------------------------------------------
-class StdFindEngine : public Engine {
+template <class T>
+class StdEngine : public Engine {
 public:
-   StdFindEngine(std::string_view pattern)
+   StdEngine(std::string_view pattern)
        : pattern(pattern)
        , decode_buffer(128) {}
 
@@ -13,7 +14,7 @@ public:
    {
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
-         if (block.GetRow(row_idx).find(pattern) != std::string_view::npos) {
+         if (static_cast<T*>(this)->Matches(block.GetRow(row_idx))) {
             result[match_count++] = row_idx;
          }
       }
@@ -36,16 +37,40 @@ public:
 
          // Match.
          std::string_view text(decode_buffer.data(), decoded_size);
-         if (text.find(pattern) != std::string_view::npos) {
+         if (static_cast<T*>(this)->Matches(text)) {
             result[match_count++] = row_idx;
          }
       }
       return match_count;
    }
 
-private:
+protected:
    std::string_view pattern;
    std::vector<char> decode_buffer;
+};
+// -------------------------------------------------------------------------------------
+class StdFindEngine : public StdEngine<StdFindEngine> {
+public:
+   StdFindEngine(std::string_view pattern)
+       : StdEngine(pattern) {}
+
+   bool Matches(std::string_view text) noexcept { return text.find(pattern) != std::string_view::npos; }
+};
+// -------------------------------------------------------------------------------------
+class StdStartsWithEngine : public StdEngine<StdFindEngine> {
+public:
+   StdStartsWithEngine(std::string_view pattern)
+       : StdEngine(pattern) {}
+
+   bool Matches(std::string_view text) noexcept { return text.starts_with(pattern); }
+};
+// -------------------------------------------------------------------------------------
+class StdEndsWithEngine : public StdEngine<StdFindEngine> {
+public:
+   StdEndsWithEngine(std::string_view pattern)
+       : StdEngine(pattern) {}
+
+   bool Matches(std::string_view text) noexcept { return text.ends_with(pattern); }
 };
 // -------------------------------------------------------------------------------------
 class StdFindEngineFactory : public EngineFactory {
@@ -58,9 +83,19 @@ public:
           pattern.ends_with('%')) {
          return std::make_unique<StdFindEngine>(pattern.substr(1, pattern.size() - 2));
       }
+      if (std::count(pattern.begin(), pattern.end(), '%') == 1 &&
+          pattern.find('_') == std::string::npos &&
+          pattern.ends_with('%')) {
+         return std::make_unique<StdStartsWithEngine>(pattern.substr(0, pattern.size() - 1));
+      }
+      if (std::count(pattern.begin(), pattern.end(), '%') == 1 &&
+          pattern.find('_') == std::string::npos &&
+          pattern.starts_with('%')) {
+         return std::make_unique<StdEndsWithEngine>(pattern.substr(1, pattern.size() - 1));
+      }
       return nullptr;
    }
 
-   std::string GetName() final { return "std_find"; }
+   std::string GetName() final { return "stl"; }
 };
 // -------------------------------------------------------------------------------------
