@@ -10,7 +10,7 @@ public:
        : pattern(pattern)
        , decode_buffer(128) {}
 
-   uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result)
+   uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result) final
    {
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
@@ -21,7 +21,7 @@ public:
       return match_count;
    }
 
-   uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result)
+   uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
    {
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
@@ -57,7 +57,7 @@ public:
    bool Matches(std::string_view text) noexcept { return text.find(pattern) != std::string_view::npos; }
 };
 // -------------------------------------------------------------------------------------
-class StdStartsWithEngine : public StdEngine<StdFindEngine> {
+class StdStartsWithEngine : public StdEngine<StdStartsWithEngine> {
 public:
    StdStartsWithEngine(std::string_view pattern)
        : StdEngine(pattern) {}
@@ -65,7 +65,7 @@ public:
    bool Matches(std::string_view text) noexcept { return text.starts_with(pattern); }
 };
 // -------------------------------------------------------------------------------------
-class StdEndsWithEngine : public StdEngine<StdFindEngine> {
+class StdEndsWithEngine : public StdEngine<StdEndsWithEngine> {
 public:
    StdEndsWithEngine(std::string_view pattern)
        : StdEngine(pattern) {}

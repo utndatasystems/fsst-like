@@ -7,7 +7,10 @@ class StartsWithEngine : public Engine {
 public:
    StartsWithEngine(std::string_view pattern)
        : pattern(pattern)
-       , decode_buffer(128) {}
+       , decode_buffer(128)
+   {
+      assert(pattern.size() >= 9); // short ones not implemented .. there we might need to consider several symbols
+   }
 
    uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result)
    {
@@ -22,10 +25,16 @@ public:
 
    uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result)
    {
+      uint8_t symbol = block.decoder.FindLongestSymbol(pattern, false);
+
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
          // Get encoded row.
          std::string_view compressed_text = block.GetRow(row_idx);
+
+         if (compressed_text.size() > 0 && symbol != compressed_text[0]) {
+            continue;
+         }
 
          // Decode the row.
          uint32_t ideal_buffer_size = block.decoder.GetIdealBufferSize(compressed_text.size());
@@ -36,7 +45,7 @@ public:
 
          // Match.
          std::string_view text(decode_buffer.data(), decoded_size);
-         if (text.find(pattern) != std::string_view::npos) {
+         if (text.starts_with(pattern)) {
             result[match_count++] = row_idx;
          }
       }

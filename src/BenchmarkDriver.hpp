@@ -24,6 +24,17 @@ struct FsstBlock {
       uint32_t end = offsets[row_idx + 1];
       return std::string_view(data.data() + start, end - start);
    }
+
+   void PrintUsedChars(std::ostream& os) const
+   {
+      os << "used_chars: {" << std::endl;
+      for (uint32_t idx = 0; idx < 256; idx++) {
+         if (used_chars[idx]) {
+            os << ((char)idx) << ", ";
+         }
+      }
+      os << "}" << std::endl;
+   }
 };
 // -------------------------------------------------------------------------------------
 struct RawBlock {

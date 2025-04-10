@@ -155,7 +155,7 @@ void FsstDecoder::PrintSymbolTable(ostream& os) const
    }
 }
 // -------------------------------------------------------------------------------------
-uint32_t FsstDecoder::FindLongestSymbol(string_view text) const
+uint8_t FsstDecoder::FindLongestSymbol(string_view text, bool allow_prefix) const
 {
    fsst_decoder_t* symbol_table = reinterpret_cast<fsst_decoder_t*>(decoder);
 
@@ -163,8 +163,7 @@ uint32_t FsstDecoder::FindLongestSymbol(string_view text) const
    uint32_t longest_match_idx = 255;
    for (uint32_t idx = 0; idx < symbol_table_size; idx++) {
       uint32_t matching_bytes = CountMatchingBytes(text, symbol_table->symbol[idx], symbol_table->len[idx]);
-      if (matching_bytes == symbol_table->len[idx]) {
-         assert(matching_bytes != longest_match);
+      if (allow_prefix || matching_bytes == symbol_table->len[idx]) {
          if (matching_bytes > longest_match) {
             longest_match = matching_bytes;
             longest_match_idx = idx;

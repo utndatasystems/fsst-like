@@ -11,6 +11,9 @@ void BenchmarkDriver::AddEngine(unique_ptr<EngineFactory> engine_factory)
 // -------------------------------------------------------------------------------------
 void BenchmarkDriver::LoadBlocks(string_view file_path)
 {
+   raw_blocks.clear();
+   fsst_blocks.clear();
+
    // Open the file.
    string path_as_string(file_path);
    ifstream in(path_as_string);

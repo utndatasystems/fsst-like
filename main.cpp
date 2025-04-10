@@ -20,7 +20,9 @@ int main(int, char**)
    std::cout << "------" << std::endl;
    driver.LoadBlocks("data/p_type.csv");
    driver.Run("MEDIUM POLISHED%"); // not like
-   driver.Run("PROMO%");
+   driver.Run("MEDIUM POLISHED%"); // not like
+   driver.Run("MEDIUM POLISHED%"); // not like
+   // driver.Run("PROMO%");
 
    return 0;
 }

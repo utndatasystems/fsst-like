@@ -52,11 +52,12 @@ public:
    // How much memory is required so that FSST can fast decompress into it.
    uint32_t GetIdealBufferSize(uint32_t compressed_size) const { return compressed_size * 8 + 32; }
 
+   uint8_t FindLongestSymbol(std::string_view text, bool allow_prefix = false) const;
+
 private:
    uint32_t symbol_table_size;
    fsst_decoder_t* decoder = nullptr;
 
-   uint32_t FindLongestSymbol(std::string_view text) const;
    static uint32_t CountMatchingBytes(std::string_view text, uint64_t symbol, uint32_t len);
 };
 // -------------------------------------------------------------------------------------
