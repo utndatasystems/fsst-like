@@ -131,7 +131,7 @@ pair<bool, uint32_t> FsstDecoder::Encode(string_view text, span<char> output) co
    while (read_idx < text.size() && write_idx + 1 < output.size()) {
       uint32_t longest_symbol = FindLongestSymbol(text.substr(read_idx));
       if (longest_symbol >= 255) {
-         output[write_idx++] = 255;
+         output[write_idx++] = static_cast<char>(255);
          output[write_idx++] = text[read_idx++];
       }
       else {

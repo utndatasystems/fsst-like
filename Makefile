@@ -1,11 +1,16 @@
 all: main
 clean:
-	-@rm -f main
+	-@rm -f main && rm -rf bin/
 
 CXX = g++ -std=c++20 -W -Wall -march=native -Ifsst -Isrc/ -I.
 OPT=-O3 -fno-stack-protector
 ifdef NDEBUG
 	OPT += -DNDEBUG
+endif
+
+COMPILER_VERSION = $(shell ${CXX} --version)
+ifneq ($(findstring clang,$(COMPILER_VERSION)),)
+   CXX += -Wno-unqualified-std-cast-call
 endif
 
 # Build/link the main.

@@ -41,6 +41,8 @@ struct RawBlock {
 // -------------------------------------------------------------------------------------
 class Engine {
 public:
+   virtual ~Engine() = default;
+
    // Called once for each block.
    virtual uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) = 0;
    virtual uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result) = 0;
@@ -48,6 +50,8 @@ public:
 // -------------------------------------------------------------------------------------
 class EngineFactory {
 public:
+   virtual ~EngineFactory() = default;
+
    // Called once per table, at the begining of the scan operation.
    virtual std::unique_ptr<Engine> Create(std::string_view pattern) = 0;
    virtual std::string GetName() = 0;
