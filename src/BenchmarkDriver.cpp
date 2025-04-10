@@ -48,37 +48,36 @@ void BenchmarkDriver::LoadBlocks(string_view file_path)
    }
 }
 // -------------------------------------------------------------------------------------
-void BenchmarkDriver::RunRaw(string_view pattern)
+void BenchmarkDriver::Run(string_view pattern)
 {
    vector<uint32_t> result(BLOCK_SIZE);
    for (auto& engine_factory : engine_factories) {
-      std::cout << "Running raw scan with " << engine_factory->GetName() << std::endl;
-      uint32_t row_count = 0;
+      // Create engine
       auto engine = engine_factory->Create(pattern);
-      auto begin = std::chrono::high_resolution_clock::now();
+      if (!engine) {
+         std::cout << engine_factory->GetName() << " skipped" << std::endl;
+         continue;
+      }
+
+      // Run raw
+      uint32_t raw_row_count = 0;
+      auto raw_begin = std::chrono::high_resolution_clock::now();
       for (auto& block : raw_blocks) {
-         row_count += engine->Scan(block, result);
+         raw_row_count += engine->Scan(block, result);
       }
-      auto end = std::chrono::high_resolution_clock::now();
-      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
-      cout << "Found " << row_count << " in " << duration << "ms" << endl;
-   }
-}
-// -------------------------------------------------------------------------------------
-void BenchmarkDriver::RunCompressed(string_view pattern)
-{
-   vector<uint32_t> result(BLOCK_SIZE);
-   for (auto& engine_factory : engine_factories) {
-      std::cout << "Running raw scan with " << engine_factory->GetName() << std::endl;
-      uint32_t row_count = 0;
-      auto engine = engine_factory->Create(pattern);
-      auto begin = std::chrono::high_resolution_clock::now();
+      auto raw_end = std::chrono::high_resolution_clock::now();
+
+      // Run compressed
+      uint32_t compressed_row_count = 0;
+      auto compressed_begin = std::chrono::high_resolution_clock::now();
       for (auto& block : fsst_blocks) {
-         row_count += engine->Scan(block, result);
+         compressed_row_count += engine->Scan(block, result);
       }
-      auto end = std::chrono::high_resolution_clock::now();
-      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
-      cout << "Found " << row_count << " in " << duration << "ms" << endl;
+      auto compressed_end = std::chrono::high_resolution_clock::now();
+
+      auto raw_duration = std::chrono::duration_cast<std::chrono::milliseconds>(raw_end - raw_begin).count();
+      auto compressed_duration = std::chrono::duration_cast<std::chrono::milliseconds>(compressed_end - compressed_begin).count();
+      std::cout << engine_factory->GetName() << ", " << raw_row_count << ", " << compressed_row_count << ", " << raw_duration << "ms, " << compressed_duration << "ms" << endl;
    }
 }
 // -------------------------------------------------------------------------------------

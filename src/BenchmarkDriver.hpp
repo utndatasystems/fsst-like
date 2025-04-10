@@ -61,8 +61,7 @@ class BenchmarkDriver {
 public:
    void AddEngine(std::unique_ptr<EngineFactory> engine_factory);
    void LoadBlocks(std::string_view file_path);
-   void RunRaw(std::string_view pattern);
-   void RunCompressed(std::string_view pattern);
+   void Run(std::string_view pattern);
 
 private:
    std::vector<std::unique_ptr<EngineFactory>> engine_factories;
