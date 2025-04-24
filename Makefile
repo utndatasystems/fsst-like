@@ -26,6 +26,6 @@ bin/FsstWrapper.o: src/FsstWrapper.cpp src/FsstWrapper.hpp
 	@mkdir -p bin
 	$(CXX) -c $(OPT) src/FsstWrapper.cpp -o bin/FsstWrapper.o
 
-bin/StateMachine.o: src/StateMachine.hpp
+bin/StateMachine.o: src/StateMachine.hpp src/StateMachine.cpp
 	@mkdir -p bin
-	$(CXX) -c $(OPT) src/StateMachine.hpp -o bin/StateMachine.o
+	$(CXX) -c $(OPT) src/StateMachine.cpp -o bin/StateMachine.o
