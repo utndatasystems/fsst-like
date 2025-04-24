@@ -66,10 +66,7 @@ public:
     curr_state = pos;
   }
 
-  inline void accept(char c, bool verbose = false) {
-    if (verbose) {
-      std::cerr << "[accept] c=" << c << std::endl;
-    }
+  inline void accept(char c) {
     // TODO: Maybe optimize this when `curr_state` is anyway always 0.
     // TODO: Like we should optimize for the last if.
     while ((curr_state > 0) && (P[curr_state] != c)) {
@@ -104,13 +101,9 @@ public:
     curr_state += match2;
   }
 
-  inline void accept_symbol(size_t code, bool verbose = false) {
-    if (verbose) {
-      std::cerr << "[accept_symbol w/o lookup] code=" << code << " || @@" << fsst_symbols[code] << "@@" << std::endl;
-    }
-
+  inline void accept_symbol(size_t code) {
     for (auto c : fsst_symbols[code]) {
-      accept(c, verbose);
+      accept(c);
 
       if (curr_state == m)
         return;
@@ -126,7 +119,7 @@ public:
     }
   }
 
-  inline void accept_symbol_with_lookup(size_t code, bool verbose = false) {
+  inline void accept_symbol_with_lookup(size_t code) {
     // Use the state lookup table.
     curr_state = lookup_table[curr_state * fsst_size + code];
   }
@@ -173,20 +166,17 @@ public:
   }
 
   // Implementation of KMP on FSST-encoded data.
-  bool fsst_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size, bool verbose = false) {
+  bool fsst_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size) {
     // Init.
     init_state();
 
-    auto consume_char = [this, verbose](unsigned char c) {
-      accept(c, verbose);
+    auto consume_char = [this](unsigned char c) {
+      accept(c);
       return curr_state != m;
     };
 
-    auto consume_code = [this, verbose](size_t code) {
-      accept_symbol(code, verbose);
-      if (verbose) {
-        std::cerr << "curr_state=" << curr_state << " M=" << m << std::endl;
-      }
+    auto consume_code = [this](size_t code) {
+      accept_symbol(code);
       return curr_state != m;
     };
 
@@ -214,20 +204,20 @@ public:
   }
 
   // Implementation of LookupKMP on FSST-encoded data.
-  bool fsst_lookup_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size, bool verbose) {
+  bool fsst_lookup_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size) {
     // Init.
     init_state();
 
     // TODO: Remove the `verbose` part afterwards!!!
-    auto consume_char = [this, verbose](unsigned char c) {
-      accept(c, verbose);
+    auto consume_char = [this](unsigned char c) {
+      accept(c);
       return curr_state != m;
     };
 
-    auto consume_code = [this, verbose](size_t code) {
+    auto consume_code = [this](size_t code) {
       // TODO: Remove this assert at the end.
       assert(code < fsst_size);
-      accept_symbol_with_lookup(code, verbose);
+      accept_symbol_with_lookup(code);
       return curr_state != m;
     };
 

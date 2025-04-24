@@ -36,28 +36,7 @@ public:
          std::string_view compressed_text = block.GetRow(row_idx);
 
          // Match.
-         if (!static_cast<T*>(this)->FsstMatches(block.decoder, compressed_text)) {
-            // Decode the row.
-            std::vector<char> decode_buffer;
-            uint32_t ideal_buffer_size = block.decoder.GetIdealBufferSize(compressed_text.size());
-            if (ideal_buffer_size > decode_buffer.size()) {
-               decode_buffer.resize(ideal_buffer_size);
-            }
-            uint32_t decoded_size = block.decoder.Decode(compressed_text, decode_buffer);
-
-            // Match.
-            std::string_view text(decode_buffer.data(), decoded_size);
-            if (text.find(pattern) != std::string_view::npos) {
-               block.decoder.PrintSymbolTable(std::cerr);
-
-               std::cerr << "row_idx=" << row_idx << std::endl;
-               std::cerr << "text=" << text << std::endl;
-
-               static_cast<T*>(this)->FsstMatches(block.decoder, compressed_text, true);
-
-               stateMachine.init_fsst_symbols(block.decoder);
-               assert(0);
-            }
+         if (static_cast<T*>(this)->FsstMatches(block.decoder, compressed_text)) {
             result[match_count++] = row_idx;
          }
       }
@@ -78,9 +57,9 @@ public:
       return stateMachine.kmp_match(input.data(), input.size());
    }
 
-   bool FsstMatches(const FsstDecoder& fsstDecoder, std::span<const char> input, bool verbose = false) noexcept {
+   bool FsstMatches(const FsstDecoder& fsstDecoder, std::span<const char> input) noexcept {
       const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
-      return stateMachine.fsst_kmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()), verbose);
+      return stateMachine.fsst_lookup_kmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
    }
 };
 // -------------------------------------------------------------------------------------
