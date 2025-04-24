@@ -15,3 +15,18 @@ Build FSST:
 ```
 ./scripts/fsst-setup.sh
 ```
+
+## Benchmark
+
+First, prepare the datasets.
+
+```
+./scripts/data-setup.sh
+```
+
+and run
+
+```
+make
+./main
+```
