@@ -1,2 +1,17 @@
-# fsst-like
-LIKE-support in FSST
+# ☄️ LIKE push-down for FSST
+
+
+## Setup
+
+Clone the repo, along with the submodules:
+
+```
+git clone --recurse-submodules git@github.com:utndatasystems/fsst-like.git
+cd fsst-like
+```
+
+Build FSST:
+
+```
+./scripts/fsst-setup.sh
+```
