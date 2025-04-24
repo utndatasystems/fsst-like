@@ -5,6 +5,8 @@
 #include "Utility.hpp"
 #include "fsst.h"
 // -------------------------------------------------------------------------------------
+#define FSST_CORRUPT 32774747032022883 /* 7-byte number in little endian containing "corrupt" */
+// -------------------------------------------------------------------------------------
 class FsstEncoder : public NonCopyable {
 public:
    ~FsstEncoder();
@@ -53,6 +55,9 @@ public:
    uint32_t GetIdealBufferSize(uint32_t compressed_size) const { return compressed_size * 8 + 32; }
 
    uint8_t FindLongestSymbol(std::string_view text, bool allow_prefix = false) const;
+
+   // Iterate a FSST-encoded string.
+   template<typename ConsumeCode, typename ConsumeChar> inline bool Iterate(size_t lenIn, const unsigned char *strIn, size_t size, ConsumeChar&& consume_char, ConsumeCode&& consume_code) const;
 
 private:
    uint32_t symbol_table_size;
