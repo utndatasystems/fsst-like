@@ -9,12 +9,18 @@ template <class T>
 class CometEngine : public Engine {
 public:
    CometEngine(std::string_view pattern, StateMachine stateMachine)
-   : pattern(pattern), stateMachine(pattern) {}
+   : pattern(pattern), stateMachine(std::move(stateMachine)) {}
+
+   uint32_t Scan(const RawBlock& /* block */, std::vector<uint32_t>& /* result */)
+   {
+      // Why do we need this?
+      return 0;
+   }
 
    uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
    {
       // Init the FSST symbols.
-      stateMachine.init_fsst_symbols(decoder);
+      stateMachine.init_fsst_symbols(block.decoder);
 
       // Build the state lookup table.
       stateMachine.build_lookup_table();
@@ -40,9 +46,9 @@ protected:
 class CometKmpEngine : public CometEngine<CometKmpEngine> {
 public:
    CometKmpEngine(std::string_view pattern, StateMachine stateMachine)
-       : CometEngine(pattern, stateMachine) {}
+       : CometEngine(pattern, std::move(stateMachine)) {}
 
-   bool Matches(FsstDecoder fsstDecoder, std::span<const char> input) noexcept { 
+   bool Matches(const FsstDecoder& fsstDecoder, std::span<const char> input) noexcept { 
       const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
       return stateMachine.fsst_kmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
    }

@@ -49,7 +49,7 @@ public:
    void PrintSymbolTable(std::ostream& os) const;
 
    uint32_t GetSymbolTableSize() const { return symbol_table_size; }
-   fsst_decoder_t& GetSymbolTable() { return *decoder; }
+   fsst_decoder_t& GetSymbolTable() const { return *decoder; }
 
    // How much memory is required so that FSST can fast decompress into it.
    uint32_t GetIdealBufferSize(uint32_t compressed_size) const { return compressed_size * 8 + 32; }

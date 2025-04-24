@@ -21,7 +21,7 @@ public:
     return true;
   }
 
-  void init_fsst_symbols(FsstDecoder fsstDecoder) {
+  void init_fsst_symbols(const FsstDecoder& fsstDecoder) {
     // Resize.
     fsst_symbols.reserve(fsstDecoder.GetSymbolTableSize());
 
