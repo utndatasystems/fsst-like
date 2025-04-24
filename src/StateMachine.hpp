@@ -22,26 +22,24 @@ public:
   }
 
   void init_fsst_symbols(const FsstDecoder& fsstDecoder) {
-    // Resize.
-    fsst_symbols.reserve(fsstDecoder.GetSymbolTableSize());
+    // Resize. Note: This is really a `resize`, and not a `reserve`, since this state machine will see many data blocks.
+    fsst_symbols.resize(fsstDecoder.GetSymbolTableSize());
 
     // Take the FSST symbols.
-    for (unsigned index = 0; index < fsstDecoder.GetSymbolTableSize(); ++index) {
-      auto len = fsstDecoder.GetSymbolTable().len[index];
+    for (unsigned index = 0, limit = fsstDecoder.GetSymbolTableSize(); index != limit; ++index) {
+      // Take the raw symbol.
       auto raw_symbol = fsstDecoder.GetSymbolTable().symbol[index];
 
+      // Skip over this symbol. Note: In principle, all the corrupt (invalid) symbols should have been put _at the end_ of the table.
       if (raw_symbol == FSST_CORRUPT) {
         continue;
       }
 
-      std::string symbol;
-      for (unsigned k = 0; k != len; ++k) {
-	  		int c = (raw_symbol >> 8*k) & 0xFF;
-        symbol += static_cast<char>(c);
-      }
+      // Fetch the symbol.
+      std::string symbol = fsstDecoder.SymbolToStr(index);
 
       // Add symbol.
-      fsst_symbols.push_back(symbol);
+      fsst_symbols[index] = symbol;
     }
     
     // Init the fsst_size.
@@ -68,7 +66,10 @@ public:
     curr_state = pos;
   }
 
-  inline void accept(char c) {
+  inline void accept(char c, bool verbose = false) {
+    if (verbose) {
+      std::cerr << "[accept] c=" << c << std::endl;
+    }
     // TODO: Maybe optimize this when `curr_state` is anyway always 0.
     // TODO: Like we should optimize for the last if.
     while ((curr_state > 0) && (P[curr_state] != c)) {
@@ -103,9 +104,13 @@ public:
     curr_state += match2;
   }
 
-  inline void accept_symbol(size_t code) {
+  inline void accept_symbol(size_t code, bool verbose = false) {
+    if (verbose) {
+      std::cerr << "[accept_symbol w/o lookup] code=" << code << " || @@" << fsst_symbols[code] << "@@" << std::endl;
+    }
+
     for (auto c : fsst_symbols[code]) {
-      accept(c);
+      accept(c, verbose);
 
       if (curr_state == m)
         return;
@@ -121,7 +126,7 @@ public:
     }
   }
 
-  inline void accept_symbol_with_lookup(size_t code) {
+  inline void accept_symbol_with_lookup(size_t code, bool verbose = false) {
     // Use the state lookup table.
     curr_state = lookup_table[curr_state * fsst_size + code];
   }
@@ -168,17 +173,20 @@ public:
   }
 
   // Implementation of KMP on FSST-encoded data.
-  bool fsst_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+  bool fsst_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size, bool verbose = false) {
     // Init.
     init_state();
 
-    auto consume_char = [this](unsigned char c) {
-      accept(c);
+    auto consume_char = [this, verbose](unsigned char c) {
+      accept(c, verbose);
       return curr_state != m;
     };
 
-    auto consume_code = [this](size_t code) {
-      accept_symbol(code);
+    auto consume_code = [this, verbose](size_t code) {
+      accept_symbol(code, verbose);
+      if (verbose) {
+        std::cerr << "curr_state=" << curr_state << " M=" << m << std::endl;
+      }
       return curr_state != m;
     };
 
@@ -206,19 +214,20 @@ public:
   }
 
   // Implementation of LookupKMP on FSST-encoded data.
-  bool fsst_lookup_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size) {
+  bool fsst_lookup_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size, bool verbose) {
     // Init.
     init_state();
 
-    auto consume_char = [this](unsigned char c) {
-      accept(c);
+    // TODO: Remove the `verbose` part afterwards!!!
+    auto consume_char = [this, verbose](unsigned char c) {
+      accept(c, verbose);
       return curr_state != m;
     };
 
-    auto consume_code = [this](size_t code) {
+    auto consume_code = [this, verbose](size_t code) {
       // TODO: Remove this assert at the end.
       assert(code < fsst_size);
-      accept_symbol_with_lookup(code);
+      accept_symbol_with_lookup(code, verbose);
       return curr_state != m;
     };
 

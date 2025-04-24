@@ -143,15 +143,22 @@ pair<bool, uint32_t> FsstDecoder::Encode(string_view text, span<char> output) co
    return make_pair(read_idx == text.size(), write_idx);
 }
 // -------------------------------------------------------------------------------------
+std::string FsstDecoder::SymbolToStr(unsigned code_index) const
+{
+   fsst_decoder_t* symbol_table = reinterpret_cast<fsst_decoder_t*>(decoder);
+   std::string ret;
+   for (uint32_t jdx = 0; jdx < symbol_table->len[code_index]; jdx++) {
+      ret += static_cast<char>(symbol_table->symbol[code_index] >> (jdx * 8));
+   }
+   return ret;
+}
+// -------------------------------------------------------------------------------------
 void FsstDecoder::PrintSymbolTable(ostream& os) const
 {
    fsst_decoder_t* symbol_table = reinterpret_cast<fsst_decoder_t*>(decoder);
    for (uint32_t idx = 0; idx < symbol_table_size; idx++) {
       os << "idx: " << idx << ", len: " << static_cast<int>(symbol_table->len[idx]) << ", symbol: ";
-      for (uint32_t jdx = 0; jdx < symbol_table->len[idx]; jdx++) {
-         os << static_cast<char>(symbol_table->symbol[idx] >> (jdx * 8));
-      }
-      os << endl;
+      os << SymbolToStr(idx) << endl;
    }
 }
 // -------------------------------------------------------------------------------------

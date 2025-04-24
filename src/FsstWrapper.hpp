@@ -46,6 +46,7 @@ public:
    // to be able to compare with encoded tuple data. Hence, this method.
    std::pair<bool, uint32_t> Encode(std::string_view text, std::span<char> output) const;
 
+   std::string SymbolToStr(unsigned code_index) const;
    void PrintSymbolTable(std::ostream& os) const;
 
    uint32_t GetSymbolTableSize() const { return symbol_table_size; }
