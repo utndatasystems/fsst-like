@@ -76,12 +76,13 @@ public:
    //  unsigned char*__restrict__ strOut = (unsigned char* __restrict__) output;
       unsigned long long*__restrict__ symbol = (unsigned long long* __restrict__) decoder->symbol; 
       size_t code, posOut = 0, posIn = 0;
-   #ifndef FSST_MUST_ALIGN /* defining on platforms that require aligned memory access may help their performance */
-   #define FSST_UNALIGNED_STORE(dst,src) memcpy((unsigned long long*) (dst), &(src), sizeof(unsigned long long))
-   #if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
 
-   // TODO: Remove the stuff with `posOut`. Like everything.
-   // And even with `size` since we don't have any constraint right now.
+#ifndef FSST_MUST_ALIGN /* defining on platforms that require aligned memory access may help their performance */
+#define FSST_UNALIGNED_STORE(dst,src) memcpy((unsigned long long*) (dst), &(src), sizeof(unsigned long long))
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+
+      // TODO: Remove the stuff with `posOut` (like everything).
+      // TODO Also, _maybe_, the part with `size`. Not sure about the `if`-stmt for the last 3 bytes.
       while (posOut+32 <= size && posIn+4 <= lenIn) {
          unsigned int nextBlock, escapeMask;
          memcpy(&nextBlock, strIn+posIn, sizeof(unsigned int));
@@ -114,9 +115,8 @@ public:
                   posIn += 2; if (!consume_char(strIn[posIn - 1])) return true; posOut++; // strOut[posOut++] = strIn[posIn-1]; 
                }
             } else {
-               // Consume the regualr byte.
-               if (!consume_char(strIn[posIn + 1]))
-               return true;
+               // Consume the regular byte.
+               if (!consume_char(strIn[posIn + 1])) return true;
                
                posIn += 2; posOut++; // posOut++;
             } 
@@ -151,7 +151,7 @@ public:
             posIn++; posOut++;
          } 
       if (posOut >= size && (decoder->zeroTerminated&1)) {
-      assert(0); //  strOut[size-1] = 0;
+         assert(0); // strOut[size-1] = 0;
       }
 
       return false; /* full size of decompressed string (could be >size, then the actually decompressed part) */
