@@ -11,10 +11,15 @@ public:
    CometEngine(std::string_view pattern, StateMachine stateMachine)
    : pattern(pattern), stateMachine(std::move(stateMachine)) {}
 
-   uint32_t Scan(const RawBlock& /* block */, std::vector<uint32_t>& /* result */)
+   uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result)
    {
-      // Why do we need this?
-      return 0;
+      uint32_t match_count = 0;
+      for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
+         if (static_cast<T*>(this)->RawMatches(block.GetRow(row_idx))) {
+            result[match_count++] = row_idx;
+         }
+      }
+      return match_count;
    }
 
    uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
@@ -31,7 +36,7 @@ public:
          std::string_view compressed_text = block.GetRow(row_idx);
 
          // Match.
-         if (static_cast<T*>(this)->Matches(block.decoder, compressed_text)) {
+         if (static_cast<T*>(this)->FsstMatches(block.decoder, compressed_text)) {
             result[match_count++] = row_idx;
          }
       }
@@ -48,9 +53,13 @@ public:
    CometKmpEngine(std::string_view pattern, StateMachine stateMachine)
        : CometEngine(pattern, std::move(stateMachine)) {}
 
-   bool Matches(const FsstDecoder& fsstDecoder, std::span<const char> input) noexcept { 
+   bool RawMatches(std::span<const char> input) noexcept {
+      return stateMachine.kmp_match(input.data(), input.size());
+   }
+
+   bool FsstMatches(const FsstDecoder& fsstDecoder, std::span<const char> input) noexcept {
       const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
-      return stateMachine.fsst_kmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
+      return stateMachine.fsst_lookup_kmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
    }
 };
 // -------------------------------------------------------------------------------------
