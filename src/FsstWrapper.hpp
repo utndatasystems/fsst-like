@@ -58,6 +58,7 @@ public:
    uint8_t FindLongestSymbol(std::string_view text, bool allow_prefix = false) const;
 
    // Iterate a FSST-encoded string.
+   // TODO: Make sure the latest bugs have been fixed from cwida/fsst.
    template<typename ConsumeCode, typename ConsumeChar>
    inline bool Iterate(
       // IN: The byte-length of compressed string.
@@ -88,8 +89,8 @@ public:
          if (escapeMask == 0) {
             code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
             code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
-            code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; //FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
-            code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; //FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+            code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
+            code = strIn[posIn++]; if (!consume_code(code)) return true; posOut += len[code]; // FSST_UNALIGNED_STORE(strOut+posOut, symbol[code]); posOut += len[code]; 
       } else { 
             unsigned long firstEscapePos=__builtin_ctzl((unsigned long long) escapeMask)>>3;
             switch(firstEscapePos) { /* Duff's device */

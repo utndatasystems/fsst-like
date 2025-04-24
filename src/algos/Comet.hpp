@@ -63,6 +63,21 @@ public:
    }
 };
 // -------------------------------------------------------------------------------------
+class CometZeroKmpEngine : public CometEngine<CometKmpEngine> {
+public:
+   CometZeroKmpEngine(std::string_view pattern, StateMachine stateMachine)
+       : CometEngine(pattern, std::move(stateMachine)) {}
+
+   bool RawMatches(std::span<const char> input) noexcept {
+      return stateMachine.zerokmp_match(input.data(), input.size());
+   }
+
+   bool FsstMatches(const FsstDecoder& fsstDecoder, std::span<const char> input) noexcept {
+      const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
+      return stateMachine.fsst_lookup_zerokmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
+   }
+};
+// -------------------------------------------------------------------------------------
 class CometEngineFactory : public EngineFactory {
 public:
    std::unique_ptr<Engine> Create(std::string_view pattern) final
@@ -77,6 +92,10 @@ public:
          // Build the state machine.
          auto stateMachine = StateMachine(cut_pattern);
             
+         // Can we enable ZeroKMP?
+         if (stateMachine.has_zerokmp_property())
+            return std::make_unique<CometZeroKmpEngine>(cut_pattern, stateMachine);
+
          // And return the engine.   
          return std::make_unique<CometKmpEngine>(cut_pattern, stateMachine);
       }

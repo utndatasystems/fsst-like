@@ -215,8 +215,6 @@ public:
     };
 
     auto consume_code = [this](size_t code) {
-      // TODO: Remove this assert at the end.
-      assert(code < fsst_size);
       accept_symbol_with_lookup(code);
       return curr_state != m;
     };
@@ -235,8 +233,6 @@ public:
     };
 
     auto consume_code = [this](size_t code) {
-      // TODO: Remove this assert at the end.
-      assert(code < fsst_size);
       accept_symbol_with_lookup(code);
       return curr_state != m;
     };
