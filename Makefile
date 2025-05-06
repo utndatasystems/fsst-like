@@ -14,7 +14,7 @@ ifneq ($(findstring clang,$(COMPILER_VERSION)),)
 endif
 
 # Build/link the main.
-main: main.cpp fsst/build/libfsst.a bin/BenchmarkDriver.o bin/FsstWrapper.o bin/StateMachine.o src/algos/StdFind.hpp src/algos/StartsWith.hpp src/algos/Comet.hpp
+main: main.cpp fsst/build/libfsst.a bin/BenchmarkDriver.o bin/FsstWrapper.o bin/StateMachine.o src/algos/StdFind.hpp src/algos/StartsWith.hpp src/algos/Comet.hpp src/algos/Skipping.hpp
 	$(CXX) -o main $(OPT) main.cpp -flto bin/BenchmarkDriver.o bin/FsstWrapper.o bin/StateMachine.o -Lfsst/build -lfsst 
 
 # Build for individual files.
