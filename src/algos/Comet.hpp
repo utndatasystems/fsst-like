@@ -11,6 +11,11 @@ public:
    CometEngine(std::string_view pattern, StateMachine stateMachine)
        : pattern(pattern), stateMachine(std::move(stateMachine)) {}
 
+   ~CometEngine()
+   {
+      std::cout << "total_ms: " << (total_ns / 1e6) << std::endl;
+   }
+
    uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result)
    {
       uint32_t match_count = 0;
@@ -31,9 +36,15 @@ public:
       stateMachine.build_lookup_table();
    }
 
+   uint64_t total_ns = 0;
+
    uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
    {
+      auto start = std::chrono::high_resolution_clock::now();
       InitializeForCompressedScan(block);
+      auto end = std::chrono::high_resolution_clock::now();
+      uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+      total_ns += ns;
 
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
@@ -83,7 +94,10 @@ public:
    bool FsstMatches(const FsstDecoder& fsstDecoder, std::string_view input) noexcept
    {
       const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
-      return stateMachine.fsst_lookup_zerokmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
+      return stateMachine.fsst_lookup_zerokmp_match(fsstDecoder,
+                                                    input.size(),
+                                                    cast_input,
+                                                    fsstDecoder.GetIdealBufferSize(input.size()));
    }
 };
 // -------------------------------------------------------------------------------------
@@ -102,10 +116,13 @@ public:
          auto stateMachine = StateMachine(cut_pattern);
 
          // Can we enable ZeroKMP?
-         if (stateMachine.has_zerokmp_property())
+         if (stateMachine.has_zerokmp_property()) {
+            std::cout << "zero!" << std::endl;
             return std::make_unique<CometZeroKmpEngine>(cut_pattern, stateMachine);
+         }
 
          // And return the engine.
+         std::cout << "normal!" << std::endl;
          return std::make_unique<CometKmpEngine>(cut_pattern, stateMachine);
       }
 
