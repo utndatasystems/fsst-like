@@ -3,21 +3,30 @@
 #include <algorithm>
 #include <set>
 #include "BenchmarkDriver.hpp"
+#include "Comet.hpp"
 #include "Utility.hpp"
 // -------------------------------------------------------------------------------------
 class SkippingEngine : public Engine {
 public:
-   SkippingEngine(std::string_view pattern)
+   SkippingEngine(std::string_view pattern, std::unique_ptr<CometEngine<CometKmpEngine>> comet)
        : pattern(pattern)
        , decode_buffer(128)
+       , comet(move(comet))
    {
    }
 
-   uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result)
+   ~SkippingEngine() override
+   {
+      for (const auto& [key, value] : required_symbol_count_agg) {
+         std::cout << "required symbol count: " << key << " count: " << value << std::endl;
+      }
+   }
+
+   uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result) final
    {
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
-         if (block.GetRow(row_idx).find(pattern)) {
+         if (block.GetRow(row_idx).find(pattern) != std::string_view::npos) {
             result[match_count++] = row_idx;
          }
       }
@@ -135,8 +144,10 @@ public:
       }
    }
 
-   uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result)
+   uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
    {
+      comet->InitializeForCompressedScan(block);
+
       // if (counter != 16) {
       //    counter++;
       //    return WordlessScan(block, result);
@@ -260,6 +271,8 @@ public:
       }
 
       // Print
+      std::cout << "Required symbol count: " << required_symbols.size() << std::endl;
+      required_symbol_count_agg[required_symbols.size()] += 1;
       for (uint8_t symbol : required_symbols) {
          std::cout << "required symbol: " << (int)symbol << " text: " << block.decoder.SymbolToStr(symbol) << std::endl;
       }
@@ -291,37 +304,32 @@ public:
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
          // Get encoded row.
          std::string_view compressed_text = block.GetRow(row_idx);
-
-         // Decode the row.
-         uint32_t ideal_buffer_size = block.decoder.GetIdealBufferSize(compressed_text.size());
-         if (ideal_buffer_size > decode_buffer.size()) {
-            decode_buffer.resize(ideal_buffer_size);
+         bool has_any_of_the_required_symbol = std::any_of(required_symbols.begin(), required_symbols.end(), [&](uint8_t symbol) {
+            return compressed_text.find(symbol) != std::string_view::npos;
+         });
+         if (!has_any_of_the_required_symbol) {
+            continue;
          }
-         uint32_t decoded_size = block.decoder.Decode(compressed_text, decode_buffer);
 
          // Match.
-         std::string_view text(decode_buffer.data(), decoded_size);
-         if (text.find(pattern) != std::string_view::npos) {
+         if (static_cast<CometKmpEngine*>(comet.get())->FsstMatches(block.decoder, compressed_text)) {
             result[match_count++] = row_idx;
-            bool has_any_of_the_required_symbol = std::any_of(required_symbols.begin(), required_symbols.end(), [&](uint8_t symbol) {
-               return compressed_text.find(symbol) != std::string_view::npos;
-            });
-            if (!has_any_of_the_required_symbol) {
-               std::cout << "row_idx: " << row_idx << " compressed_text: ";
-               for (uint8_t symbol : compressed_text) {
-                  std::cout << (int)symbol << " ";
-               }
-               std::cout << "text: " << text << std::endl;
-               std::cout << std::endl;
-            }
-
-            assert(has_any_of_the_required_symbol);
+            // if (!has_any_of_the_required_symbol) {
+            //    std::cout << "row_idx: " << row_idx << " compressed_text: ";
+            //    for (uint8_t symbol : compressed_text) {
+            //       std::cout << (int)symbol << " ";
+            //    }
+            //    std::cout << "text: " << text << std::endl;
+            //    std::cout << std::endl;
+            // }
          }
       }
 
       std::cout << "all good!" << std::endl;
       return match_count;
    }
+
+   std::unordered_map<uint32_t, uint32_t> required_symbol_count_agg;
 
    uint32_t WordlessScan(const FsstBlock& block, std::vector<uint32_t>& result)
    {
@@ -349,6 +357,7 @@ public:
 private:
    std::string_view pattern;
    std::vector<char> decode_buffer;
+   std::unique_ptr<CometEngine<CometKmpEngine>> comet;
 
    int counter = 0;
 };
@@ -361,7 +370,17 @@ public:
           pattern.find('_') == std::string::npos &&
           pattern.starts_with('%') &&
           pattern.ends_with('%')) {
-         return std::make_unique<SkippingEngine>(pattern.substr(1, pattern.size() - 2));
+         // Cut the pattern.
+         auto cut_pattern = pattern.substr(1, pattern.size() - 2);
+
+         // Build the state machine.
+         auto stateMachine = StateMachine(cut_pattern);
+
+         // And return the engine.
+         auto comet = std::make_unique<CometKmpEngine>(cut_pattern, stateMachine);
+
+         // Skip engine on top.
+         return std::make_unique<SkippingEngine>(cut_pattern, move(comet));
       }
       return nullptr;
    }

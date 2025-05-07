@@ -22,13 +22,18 @@ public:
       return match_count;
    }
 
-   uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
+   void InitializeForCompressedScan(const FsstBlock& block)
    {
       // Init the FSST symbols.
       stateMachine.init_fsst_symbols(block.decoder);
 
       // Build the state lookup table.
       stateMachine.build_lookup_table();
+   }
+
+   uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
+   {
+      InitializeForCompressedScan(block);
 
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
@@ -53,12 +58,12 @@ public:
    CometKmpEngine(std::string_view pattern, StateMachine stateMachine)
        : CometEngine(pattern, std::move(stateMachine)) {}
 
-   bool RawMatches(std::span<const char> input) noexcept
+   bool RawMatches(std::string_view input) noexcept
    {
       return stateMachine.kmp_match(input.data(), input.size());
    }
 
-   bool FsstMatches(const FsstDecoder& fsstDecoder, std::span<const char> input) noexcept
+   bool FsstMatches(const FsstDecoder& fsstDecoder, std::string_view input) noexcept
    {
       const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
       return stateMachine.fsst_lookup_kmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
@@ -70,12 +75,12 @@ public:
    CometZeroKmpEngine(std::string_view pattern, StateMachine stateMachine)
        : CometEngine(pattern, std::move(stateMachine)) {}
 
-   bool RawMatches(std::span<const char> input) noexcept
+   bool RawMatches(std::string_view input) noexcept
    {
       return stateMachine.zerokmp_match(input.data(), input.size());
    }
 
-   bool FsstMatches(const FsstDecoder& fsstDecoder, std::span<const char> input) noexcept
+   bool FsstMatches(const FsstDecoder& fsstDecoder, std::string_view input) noexcept
    {
       const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
       return stateMachine.fsst_lookup_zerokmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
