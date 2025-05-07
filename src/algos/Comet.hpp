@@ -65,7 +65,7 @@ public:
    }
 };
 // -------------------------------------------------------------------------------------
-class CometZeroKmpEngine : public CometEngine<CometKmpEngine> {
+class CometZeroKmpEngine : public CometEngine<CometZeroKmpEngine> {
 public:
    CometZeroKmpEngine(std::string_view pattern, StateMachine stateMachine)
        : CometEngine(pattern, std::move(stateMachine)) {}
