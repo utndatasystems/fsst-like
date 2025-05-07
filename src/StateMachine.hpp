@@ -3,15 +3,16 @@
 #include <string>
 #include "FsstWrapper.hpp"
 
-class StateMachine {
+template <int IGNORED>
+class StateMachineImpl {
 public:
-   StateMachine(std::string_view pattern)
+   StateMachineImpl(std::string_view pattern)
        : P(pattern), m(pattern.size())
    {
       build_pi();
    }
 
-   StateMachine(const std::string& pattern)
+   StateMachineImpl(const std::string& pattern)
        : P(pattern), m(pattern.size())
    {
       build_pi();
@@ -318,3 +319,6 @@ private:
       // std::cerr << std::endl;
    }
 };
+
+using StateMachine = StateMachineImpl<0>;
+using StateMachine2 = StateMachineImpl<1>;

@@ -3,16 +3,21 @@
 #include <algorithm>
 #include <set>
 #include "BenchmarkDriver.hpp"
-#include "Comet.hpp"
+#include "StateMachine.hpp"
 #include "Utility.hpp"
 // -------------------------------------------------------------------------------------
 class SkippingEngine : public Engine {
 public:
-   SkippingEngine(std::string_view pattern, StateMachine state_machine)
+   SkippingEngine(std::string_view pattern, StateMachine2 state_machine)
        : pattern(pattern)
        , decode_buffer(128)
        , state_machine(std::move(state_machine))
    {
+   }
+
+   ~SkippingEngine()
+   {
+      std::cout << "total ns: " << (total_ns / 1e6) << std::endl;
    }
 
    uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result) final
@@ -26,31 +31,34 @@ public:
       return match_count;
    }
 
+   uint64_t total_ns = 0;
+
    uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
    {
       state_machine.init_fsst_symbols(block.decoder);
       state_machine.build_lookup_table();
 
-      // std::vector<uint8_t> required_symbols = CreateRequiredSymbols(block);
+      auto begin = std::chrono::high_resolution_clock::now();
+      std::vector<uint8_t> required_symbols = CreateRequiredSymbols(block);
+      auto end = std::chrono::high_resolution_clock::now();
+      uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+      total_ns += ns;
 
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
          // Get encoded row.
          std::string_view compressed_text = block.GetRow(row_idx);
-         // bool has_any_of_the_required_symbol = std::any_of(required_symbols.begin(), required_symbols.end(), [&](uint8_t symbol) {
-         //    return compressed_text.find(symbol) != std::string_view::npos;
-         // });
-         // if (!has_any_of_the_required_symbol) {
-         //    continue;
-         // }
+         bool has_any_of_the_required_symbol = std::any_of(required_symbols.begin(), required_symbols.end(), [&](uint8_t symbol) {
+            return compressed_text.find(symbol) != std::string_view::npos;
+         });
+         if (!has_any_of_the_required_symbol) {
+            continue;
+         }
 
          // Match.
          const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
-         bool match = state_machine.fsst_lookup_kmp_match(block.decoder,
-                                                          compressed_text.size(),
-                                                          cast_input,
-                                                          block.decoder.GetIdealBufferSize(compressed_text.size()));
-         // bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+         // bool match = state_machine.fsst_lookup_kmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+         bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
          if (match) {
             result[match_count++] = row_idx;
          }
@@ -59,33 +67,10 @@ public:
       return match_count;
    }
 
-   uint32_t WordlessScan(const FsstBlock& block, std::vector<uint32_t>& result)
-   {
-      uint32_t match_count = 0;
-      for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
-         // Get encoded row.
-         std::string_view compressed_text = block.GetRow(row_idx);
-
-         // Decode the row.
-         uint32_t ideal_buffer_size = block.decoder.GetIdealBufferSize(compressed_text.size());
-         if (ideal_buffer_size > decode_buffer.size()) {
-            decode_buffer.resize(ideal_buffer_size);
-         }
-         uint32_t decoded_size = block.decoder.Decode(compressed_text, decode_buffer);
-
-         // Match.
-         std::string_view text(decode_buffer.data(), decoded_size);
-         if (text.find(pattern) != std::string_view::npos) {
-            result[match_count++] = row_idx;
-         }
-      }
-      return match_count;
-   }
-
 private:
    std::string_view pattern;
    std::vector<char> decode_buffer;
-   StateMachine state_machine;
+   StateMachine2 state_machine;
 
    void PrintPaths(const FsstBlock& block, const std::set<std::vector<uint8_t>>& possible_full_paths)
    {
@@ -290,7 +275,7 @@ public:
          auto cut_pattern = pattern.substr(1, pattern.size() - 2);
 
          // Build the state machine.
-         StateMachine state_machine(cut_pattern);
+         StateMachine2 state_machine(cut_pattern);
 
          // Skip engine on top.
          return std::make_unique<SkippingEngine>(cut_pattern, std::move(state_machine));

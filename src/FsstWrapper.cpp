@@ -148,7 +148,8 @@ std::string FsstDecoder::SymbolToStr(unsigned code_index) const
    fsst_decoder_t* symbol_table = reinterpret_cast<fsst_decoder_t*>(decoder);
    std::string ret;
    for (uint32_t jdx = 0; jdx < symbol_table->len[code_index]; jdx++) {
-      ret += static_cast<char>(symbol_table->symbol[code_index] >> (jdx * 8));
+      char c = static_cast<char>(symbol_table->symbol[code_index] >> (jdx * 8));
+      ret += c == ' ' ? '_' : c; // TODO(alex): Just tmp to debug, spaces are hard to read :(
    }
    return ret;
 }

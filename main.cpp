@@ -11,15 +11,12 @@ int main(int, char**)
    BenchmarkDriver driver;
    driver.AddEngine(std::make_unique<StdFindEngineFactory>());
    // driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
+   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
    driver.AddEngine(std::make_unique<CometEngineFactory>());
    driver.AddEngine(std::make_unique<CometEngineFactory>());
    driver.AddEngine(std::make_unique<CometEngineFactory>());
-   driver.AddEngine(std::make_unique<CometEngineFactory>());
-   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
 
    std::cout << "contains" << std::endl;
    std::cout << "--------" << std::endl;
