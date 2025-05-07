@@ -1,15 +1,15 @@
 #pragma once
 // -------------------------------------------------------------------------------------
-#include "BenchmarkDriver.hpp"
-#include "StateMachine.hpp"
 #include <algorithm>
 #include <span>
+#include "BenchmarkDriver.hpp"
+#include "StateMachine.hpp"
 // -------------------------------------------------------------------------------------
 template <class T>
 class CometEngine : public Engine {
 public:
    CometEngine(std::string_view pattern, StateMachine stateMachine)
-   : pattern(pattern), stateMachine(std::move(stateMachine)) {}
+       : pattern(pattern), stateMachine(std::move(stateMachine)) {}
 
    uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result)
    {
@@ -53,11 +53,13 @@ public:
    CometKmpEngine(std::string_view pattern, StateMachine stateMachine)
        : CometEngine(pattern, std::move(stateMachine)) {}
 
-   bool RawMatches(std::span<const char> input) noexcept {
+   bool RawMatches(std::span<const char> input) noexcept
+   {
       return stateMachine.kmp_match(input.data(), input.size());
    }
 
-   bool FsstMatches(const FsstDecoder& fsstDecoder, std::span<const char> input) noexcept {
+   bool FsstMatches(const FsstDecoder& fsstDecoder, std::span<const char> input) noexcept
+   {
       const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
       return stateMachine.fsst_lookup_kmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
    }
@@ -68,11 +70,13 @@ public:
    CometZeroKmpEngine(std::string_view pattern, StateMachine stateMachine)
        : CometEngine(pattern, std::move(stateMachine)) {}
 
-   bool RawMatches(std::span<const char> input) noexcept {
+   bool RawMatches(std::span<const char> input) noexcept
+   {
       return stateMachine.zerokmp_match(input.data(), input.size());
    }
 
-   bool FsstMatches(const FsstDecoder& fsstDecoder, std::span<const char> input) noexcept {
+   bool FsstMatches(const FsstDecoder& fsstDecoder, std::span<const char> input) noexcept
+   {
       const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
       return stateMachine.fsst_lookup_zerokmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
    }
@@ -84,19 +88,19 @@ public:
    {
       // Simple infix: %pattern%.
       if (std::count(pattern.begin(), pattern.end(), '%') == 2 && pattern.find('_') == std::string::npos &&
-         pattern.starts_with('%') &&
-         pattern.ends_with('%')) {
+          pattern.starts_with('%') &&
+          pattern.ends_with('%')) {
          // Cut the pattern.
          auto cut_pattern = pattern.substr(1, pattern.size() - 2);
 
          // Build the state machine.
          auto stateMachine = StateMachine(cut_pattern);
-            
+
          // Can we enable ZeroKMP?
          if (stateMachine.has_zerokmp_property())
             return std::make_unique<CometZeroKmpEngine>(cut_pattern, stateMachine);
 
-         // And return the engine.   
+         // And return the engine.
          return std::make_unique<CometKmpEngine>(cut_pattern, stateMachine);
       }
 
