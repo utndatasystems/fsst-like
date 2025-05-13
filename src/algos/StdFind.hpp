@@ -1,6 +1,7 @@
 #pragma once
 // -------------------------------------------------------------------------------------
 #include <algorithm>
+#include <ranges>
 #include "BenchmarkDriver.hpp"
 // -------------------------------------------------------------------------------------
 template <class T>
@@ -49,6 +50,41 @@ protected:
    std::vector<char> decode_buffer;
 };
 // -------------------------------------------------------------------------------------
+class GeneralStdFindEngine : public StdEngine<GeneralStdFindEngine> {
+public:
+    explicit GeneralStdFindEngine(std::string_view pattern)
+        : StdEngine(pattern) 
+    {
+        SplitPattern(pattern);
+    }
+
+    bool Matches(std::string_view text) const noexcept {
+        std::size_t start_pos = 0;
+        for (const auto& pat : patterns_) {
+            auto pos = text.find(pat, start_pos);
+            if (pos == std::string_view::npos)
+                return false;
+
+            // Advance after match.
+            start_pos = pos + pat.size();
+        }
+        return true;
+    }
+
+private:
+    std::vector<std::string_view> patterns_;
+
+    void SplitPattern(std::string_view pattern) {
+      std::size_t start = 0;
+      while (start <= pattern.size()) {
+         auto end = pattern.find('%', start);
+         if (end == std::string_view::npos) end = pattern.size();
+         patterns_.emplace_back(pattern.substr(start, end - start));
+         start = end + 1;
+      }
+   }
+};
+// -------------------------------------------------------------------------------------
 class StdFindEngine : public StdEngine<StdFindEngine> {
 public:
    StdFindEngine(std::string_view pattern)
@@ -93,6 +129,15 @@ public:
           pattern.starts_with('%')) {
          return std::make_unique<StdEndsWithEngine>(pattern.substr(1, pattern.size() - 1));
       }
+
+      // Generic case for: %p1%p2%.
+      // TODO: We also need the more general case: [%]p1%p2[%].
+      if (pattern.starts_with('%') &&
+          pattern.ends_with('%') &&
+          pattern.find('_') == std::string::npos) {
+         return std::make_unique<GeneralStdFindEngine>(pattern.substr(1, pattern.size() - 2));
+      }
+
       return nullptr;
    }
 
