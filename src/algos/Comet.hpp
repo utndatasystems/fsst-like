@@ -34,6 +34,7 @@ public:
 
    uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
    {
+      std::cerr << "[Scan] start" << std::endl;
       InitializeForCompressedScan(block);
 
       uint32_t match_count = 0;
@@ -41,11 +42,16 @@ public:
          // Get encoded row.
          std::string_view compressed_text = block.GetRow(row_idx);
 
+         auto verbose = (row_idx == 33) || (row_idx == 94) || (row_idx == 4) || (row_idx == 73);
+         // std::cerr << "row_idx=" << row_idx << std::endl;
+
          // Match.
-         if (static_cast<T*>(this)->FsstMatches(block.decoder, compressed_text)) {
+         if (static_cast<T*>(this)->FsstMatches(block.decoder, compressed_text, verbose)) {
             result[match_count++] = row_idx;
          }
       }
+      std::cerr << "[Scan] stop match_count=" << match_count << std::endl;
+
       return match_count;
    }
 
@@ -64,10 +70,11 @@ public:
       return machine.raw_kmp_match(input.data(), input.size());
    }
 
-   bool FsstMatches(const FsstDecoder& fsstDecoder, std::string_view input) noexcept
+   // TODO: Remove `verbose`.
+   bool FsstMatches(const FsstDecoder& fsstDecoder, std::string_view input, bool verbose = false) noexcept
    {
       const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
-      return machine.fsst_lookup_kmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
+      return machine.fsst_lookup_kmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()), verbose);
    }
 };
 // -------------------------------------------------------------------------------------
@@ -81,10 +88,10 @@ public:
       // return stateMachine.kmp_match(input.data(), input.size());
    }
 
-   bool FsstMatches(const FsstDecoder& fsstDecoder, std::string_view input) noexcept
+   bool FsstMatches(const FsstDecoder& fsstDecoder, std::string_view input, bool verbose = false) noexcept
    {
       const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
-      return machine.fsst_lookup_kmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()));
+      return machine.fsst_lookup_kmp_match(fsstDecoder, input.size(), cast_input, fsstDecoder.GetIdealBufferSize(input.size()), verbose);
    }
 };
 // -------------------------------------------------------------------------------------
@@ -119,7 +126,6 @@ public:
          std::cerr << "[general] start" << std::endl;
          auto meta_state_machine = MetaStateMachine(pattern);
          std::cerr << "[general] stop" << std::endl;
-
 
          return std::make_unique<CometKmpMetaEngine>(pattern, meta_state_machine);
       }

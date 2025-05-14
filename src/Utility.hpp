@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 #include <string_view>
+#include <iostream> // DEBUG.
 // -------------------------------------------------------------------------------------
 struct NonCopyable {
    NonCopyable() = default;
@@ -35,10 +36,14 @@ static void EraseRemove(std::vector<T> &vec, std::function<bool(const T &)> cond
 inline std::vector<std::string_view> SplitPattern(std::string_view pattern) {
    std::vector<std::string_view> ret;
    std::size_t start = 0;
+   std::cerr << "pattern=" << pattern << std::endl;
    while (start <= pattern.size()) {
       auto end = pattern.find('%', start);
+      std::cerr << "start=" << start << " end=" << end << std::endl;
       if (end == std::string_view::npos) end = pattern.size();
-      ret.emplace_back(pattern.substr(start, end - start));
+      auto local_pattern = pattern.substr(start, end - start);
+      if (!local_pattern.empty())
+         ret.emplace_back(local_pattern);
       start = end + 1;
    }
    return ret;
