@@ -1,4 +1,3 @@
-#include "FsstWrapper.hpp"
 #include "StateMachine.hpp"
 // -------------------------------------------------------------------------------------
 using namespace std;

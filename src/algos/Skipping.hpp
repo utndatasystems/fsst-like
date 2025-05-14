@@ -4,7 +4,6 @@
 #include <set>
 #include "BenchmarkDriver.hpp"
 #include "StateMachine.hpp"
-#include "Utility.hpp"
 // -------------------------------------------------------------------------------------
 class SkippingEngine : public Engine {
 public:

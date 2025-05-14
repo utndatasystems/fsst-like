@@ -1,4 +1,3 @@
-#include "FsstWrapper.hpp"
 #include "MetaStateMachine.hpp"
 // -------------------------------------------------------------------------------------
 using namespace std;
