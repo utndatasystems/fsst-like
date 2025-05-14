@@ -2,6 +2,8 @@
 // -------------------------------------------------------------------------------------
 #include "StateMachine.hpp"
 // -------------------------------------------------------------------------------------
+static constexpr bool COMPLETED = false;
+// -------------------------------------------------------------------------------------
 class MetaStateMachine {
 public:
    MetaStateMachine(std::string_view pattern)
@@ -31,49 +33,61 @@ public:
       std::cerr << "[precompute] stop" << std::endl;
    }
 
-   bool fsst_lookup_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size)
+   // TODO: Remove `verbose`.
+   bool fsst_lookup_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size, bool verbose = false)
    {
       unsigned machine_index = 0;
       state_machines[machine_index].init_state();
 
       // TODO: Remove the `verbose` part afterwards!!!
-      auto consume_char = [this, &machine_index](unsigned char c) {
+      auto consume_char = [this, &machine_index, verbose](unsigned char c) {
+         if (verbose) {
+            std::cerr << "[consume_char] c=" << c << std::endl;
+         }
+
          // Accept the char.
          state_machines[machine_index].accept(c);
 
          // Not yet finished with this machine?
          if (state_machines[machine_index].get_state() != state_machines[machine_index].size())
-            return true;
+            return !COMPLETED;
 
          // Otherwise, move to the next one.
          ++machine_index;
 
          // Done?
          if (machine_index == num_machines)
-            return false;
+            return COMPLETED;
          
          // Init the next machine.
          state_machines[machine_index].init_state();
 
          // We still need to go.
-         return true;
+         return !COMPLETED;
       };
 
-      auto consume_code = [this, &machine_index, consume_char](size_t code) {
+      auto consume_code = [this, &machine_index, consume_char, verbose](size_t code) {
+         if (verbose) {
+            std::cerr << "[consume_code] code=" << code << std::endl;
+         }
          // TODO: Store the position where the machine accepted.
          // TODO: We need to continue from that part of the code.
          auto stop_pos = state_machines[machine_index].accept_symbol_with_lookup(code);
 
+         if (verbose) {
+            std::cerr << "stop_pos=" << stop_pos << std::endl;
+         }
+
          // Not yet finished with this machine?
          if (state_machines[machine_index].get_state() != state_machines[machine_index].size())
-            return true;
+            return !COMPLETED;
 
          // Otherwise, move to the next one.
          ++machine_index;
 
          // Was this the last one?
          if (machine_index == num_machines)
-            return false;
+            return COMPLETED;
          
          // Init the next machine.
          state_machines[machine_index].init_state();
@@ -83,12 +97,12 @@ public:
          for (unsigned index = stop_pos, limit = fsst_symbols[code].size(); index != limit; ++index) {
             // Note: We _do_ have to use `consume_char`.
             // Note: But you can pre-compute how much from the current symbol the current machine "eats".
-            if (!consume_char(fsst_symbols[code][index]))
-               return false;
+            if (consume_char(fsst_symbols[code][index]) == COMPLETED)
+               return COMPLETED;
          }
 
          // We still need to go.
-         return true;
+         return !COMPLETED;
       };
 
       return fsstDecoder.Iterate(lenIn, strIn, size, consume_char, consume_code);

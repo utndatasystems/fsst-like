@@ -4,19 +4,20 @@
 // #include "src/algos/Skipping.hpp"
 #include "src/algos/StartsWith.hpp"
 #include "src/algos/StdFind.hpp"
+#include <filesystem>
 // -------------------------------------------------------------------------------------
 using namespace std;
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
-   if (argc != 2) {
-      std::cerr << "Usage: " << argv[0] << " <like-pattern:str>" << std::endl;
+   if (argc != 3) {
+      std::cerr << "Usage: " << argv[0] << " <column:file> <like-pattern:str>" << std::endl;
       exit(-1);
    }
 
    BenchmarkDriver driver;
-   driver.AddEngine(std::make_unique<StdFindEngineFactory>());
-   driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
+   // driver.AddEngine(std::make_unique<StdFindEngineFactory>());
+   // driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
    // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
    // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
    // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
@@ -24,11 +25,18 @@ int main(int argc, char** argv)
    driver.AddEngine(std::make_unique<CometEngineFactory>());
    driver.AddEngine(std::make_unique<CometEngineFactory>());
 
-   auto pattern = argv[1];
+   auto file_path = argv[1];
+   auto pattern = argv[2];
 
-   std::cout << "Running: " << pattern << std::endl;
+   // Check if the file exists
+   if (!std::filesystem::exists(file_path)) {
+      std::cerr << "Error: File '" << file_path << "' does not exist." << std::endl;
+      return 1;
+   }
+
+   std::cout << "Running: " << pattern << " on " << file_path << std::endl;
    std::cout << "--------" << std::endl;
-   driver.LoadBlocks("data/l_comment.csv");
+   driver.LoadBlocks(file_path);
    driver.Run(pattern);
 
    // std::cout << "" << std::endl;
