@@ -37,10 +37,10 @@ static void EraseRemove(std::vector<T> &vec, std::function<bool(const T &)> cond
 inline std::vector<std::string_view> SplitPattern(std::string_view pattern) {
    std::vector<std::string_view> ret;
    std::size_t start = 0;
-   std::cerr << "pattern=" << pattern << std::endl;
+   // std::cerr << "pattern=" << pattern << std::endl;
    while (start <= pattern.size()) {
       auto end = pattern.find('%', start);
-      std::cerr << "start=" << start << " end=" << end << std::endl;
+      // std::cerr << "start=" << start << " end=" << end << std::endl;
       if (end == std::string_view::npos) end = pattern.size();
       auto local_pattern = pattern.substr(start, end - start);
       if (!local_pattern.empty())
