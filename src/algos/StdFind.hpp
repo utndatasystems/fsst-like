@@ -55,7 +55,7 @@ public:
     explicit GeneralStdFindEngine(std::string_view pattern)
         : StdEngine(pattern) 
     {
-        SplitPattern(pattern);
+        patterns_ = SplitPattern(pattern);
     }
 
     bool Matches(std::string_view text) const noexcept {
@@ -73,16 +73,6 @@ public:
 
 private:
     std::vector<std::string_view> patterns_;
-
-    void SplitPattern(std::string_view pattern) {
-      std::size_t start = 0;
-      while (start <= pattern.size()) {
-         auto end = pattern.find('%', start);
-         if (end == std::string_view::npos) end = pattern.size();
-         patterns_.emplace_back(pattern.substr(start, end - start));
-         start = end + 1;
-      }
-   }
 };
 // -------------------------------------------------------------------------------------
 class StdFindEngine : public StdEngine<StdFindEngine> {

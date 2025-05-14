@@ -31,3 +31,14 @@ static void EraseRemove(std::vector<T> &vec, std::function<bool(const T &)> cond
    vec.erase(write_iter, vec.end());
 }
 // -------------------------------------------------------------------------------------
+std::vector<std::string_view> SplitPattern(std::string_view pattern) {
+   std::vector<std::string_view> ret;
+   std::size_t start = 0;
+   while (start <= pattern.size()) {
+      auto end = pattern.find('%', start);
+      if (end == std::string_view::npos) end = pattern.size();
+      ret.emplace_back(pattern.substr(start, end - start));
+      start = end + 1;
+   }
+   return ret;
+}

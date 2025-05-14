@@ -3,6 +3,8 @@
 #include <string>
 #include "FsstWrapper.hpp"
 
+class MetaStateMachine;
+
 template <int IGNORED>
 class StateMachineImpl {
 public:
@@ -27,7 +29,7 @@ public:
       return true;
    }
 
-   void init_fsst_symbols(const FsstDecoder& fsstDecoder)
+   void init(const FsstDecoder& fsstDecoder)
    {
       // Resize. Note: This is really a `resize`, and not a `reserve`, since this state machine will see many data blocks.
       fsst_symbols.resize(fsstDecoder.GetSymbolTableSize());
@@ -53,7 +55,7 @@ public:
       fsst_size = fsst_symbols.size();
    }
 
-   void build_lookup_table()
+   void precompute()
    {
       // Init the lookup table.
       lookup_table.resize(P.size() * fsst_size);
@@ -70,9 +72,12 @@ public:
       }
    }
 
-   inline void init_state(unsigned pos = 0)
-   {
-      curr_state = pos;
+   unsigned size() const {
+      return m;
+   }
+
+   unsigned get_state() const {
+      return curr_state;
    }
 
    inline void accept(char c)
@@ -141,10 +146,10 @@ public:
    }
 
    // Another implementation of KMP on uncompressed data.
-   bool kmp_match(const std::string& text) { return kmp_match(text.data(), text.size()); }
+   bool raw_kmp_match(const std::string& text) { return raw_kmp_match(text.data(), text.size()); }
 
    // Implementation of KMP on uncompressed data.
-   bool kmp_match(const char* ptr, unsigned len)
+   bool raw_kmp_match(const char* ptr, unsigned len)
    {
       // Init.
       init_state();
@@ -164,7 +169,7 @@ public:
    }
 
    // Implementation of ZeroKMP on uncompressed data.
-   bool zerokmp_match(const char* ptr, unsigned len)
+   bool raw_zerokmp_match(const char* ptr, unsigned len)
    {
       // Init.
       init_state();
@@ -292,6 +297,13 @@ private:
    std::vector<std::string> fsst_symbols;
    std::vector<unsigned> lookup_table;
 
+   friend class MetaStateMachine;
+
+   inline void init_state(unsigned pos = 0)
+   {
+      curr_state = pos;
+   }
+
    void build_pi()
    {
       pi.assign(P.size(), 0);
@@ -322,3 +334,4 @@ private:
 
 using StateMachine = StateMachineImpl<0>;
 using StateMachine2 = StateMachineImpl<1>;
+using StateMachineView = StateMachineImpl<2>;
