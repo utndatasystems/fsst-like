@@ -9,6 +9,7 @@ public:
       // TODO: Check if we need auto&& for `local_pattern`.
       auto local_patterns = SplitPattern(pattern);
       for (auto local_pattern : local_patterns) {
+         std::cerr << "local_pattern=" << local_pattern << std::endl;
          state_machines.push_back(StateMachineView(local_pattern));
       }
       num_machines = state_machines.size();
@@ -16,14 +17,18 @@ public:
 
    void init(const FsstDecoder& fsstDecoder)
    {
+      std::cerr << "[init] start" << std::endl;
       // TODO: Maybe reuse the fsst table, since it's anyway the same.
       for (unsigned index = 0; index != num_machines; ++index)
          state_machines[index].init(fsstDecoder);
+      std::cerr << "[init] stop" << std::endl;
    }
 
    void precompute() {
+      std::cerr << "[precompute] start" << std::endl;
       for (unsigned index = 0; index != num_machines; ++index)
          state_machines[index].precompute();
+      std::cerr << "[precompute] stop" << std::endl;
    }
 
    bool fsst_lookup_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size)
