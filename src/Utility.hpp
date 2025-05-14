@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <vector>
-#include <string>
+#include <string_view>
 // -------------------------------------------------------------------------------------
 struct NonCopyable {
    NonCopyable() = default;
@@ -33,7 +33,7 @@ static void EraseRemove(std::vector<T> &vec, std::function<bool(const T &)> cond
    vec.erase(write_iter, vec.end());
 }
 // -------------------------------------------------------------------------------------
-std::vector<std::string_view> SplitPattern(std::string_view pattern) {
+inline std::vector<std::string_view> SplitPattern(std::string_view pattern) {
    std::vector<std::string_view> ret;
    std::size_t start = 0;
    while (start <= pattern.size()) {

@@ -16,7 +16,7 @@ int main(int argc, char** argv)
 
    BenchmarkDriver driver;
    driver.AddEngine(std::make_unique<StdFindEngineFactory>());
-   // driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
+   driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
    // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
    // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
    // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
