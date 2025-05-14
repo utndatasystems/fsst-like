@@ -31,25 +31,8 @@ public:
 
    void init(const FsstDecoder& fsstDecoder)
    {
-      // Resize. Note: This is really a `resize`, and not a `reserve`, since this state machine will see many data blocks.
-      fsst_symbols.resize(fsstDecoder.GetSymbolTableSize());
-
       // Take the FSST symbols.
-      for (unsigned index = 0, limit = fsstDecoder.GetSymbolTableSize(); index != limit; ++index) {
-         // Take the raw symbol.
-         auto raw_symbol = fsstDecoder.GetSymbolTable().symbol[index];
-
-         // Skip over this symbol. Note: In principle, all the corrupt (invalid) symbols should have been put _at the end_ of the table.
-         if (raw_symbol == FSST_CORRUPT) {
-            continue;
-         }
-
-         // Fetch the symbol.
-         std::string symbol = fsstDecoder.SymbolToStr(index);
-
-         // Add symbol.
-         fsst_symbols[index] = symbol;
-      }
+      fsst_symbols = fsstDecoder.ExtractFsstTable();
 
       // Init the fsst_size.
       fsst_size = fsst_symbols.size();
@@ -65,9 +48,11 @@ public:
             // Init the state.
             init_state(index);
 
-            accept_symbol(code);
+            // The default stop-position is the length of the string.
+            unsigned stop_pos = fsst_symbols[code].size();
+            accept_symbol(code, &stop_pos);
 
-            lookup_table[index * fsst_size + code] = curr_state;
+            lookup_table[index * fsst_size + code] = {curr_state, stop_pos};
          }
       }
    }
@@ -119,13 +104,21 @@ public:
       curr_state += match2;
    }
 
-   inline void accept_symbol(size_t code)
+   inline void accept_symbol(size_t code, unsigned* stop_pos = nullptr)
    {
-      for (auto c : fsst_symbols[code]) {
+      for (unsigned index = 0, limit = fsst_symbols[code].size(); index != limit; ++index) {
+         auto c = fsst_symbols[code][index];
+
+         // Accept.
          accept(c);
 
-         if (curr_state == m)
+         // Reached the final state?
+         if (curr_state == m) {
+            // If we have a `stop_pos`, store it.
+            if (!!stop_pos)
+               (*stop_pos) = index + 1;
             return;
+         }
       }
    }
 
@@ -139,10 +132,13 @@ public:
       }
    }
 
-   inline void accept_symbol_with_lookup(size_t code)
+   inline unsigned accept_symbol_with_lookup(size_t code)
    {
       // Use the state lookup table.
-      curr_state = lookup_table[curr_state * fsst_size + code];
+      curr_state = lookup_table[curr_state * fsst_size + code].first;
+
+      // Return the stop position. This is helpful for the meta-machine.
+      return lookup_table[curr_state * fsst_size + code].second;
    }
 
    // Another implementation of KMP on uncompressed data.
@@ -295,7 +291,7 @@ private:
    std::vector<unsigned> pi;
    unsigned fsst_size;
    std::vector<std::string> fsst_symbols;
-   std::vector<unsigned> lookup_table;
+   std::vector<std::pair<unsigned, unsigned>> lookup_table;
 
    friend class MetaStateMachine;
 

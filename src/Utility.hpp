@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <vector>
+#include <string>
 // -------------------------------------------------------------------------------------
 struct NonCopyable {
    NonCopyable() = default;
@@ -43,3 +44,4 @@ std::vector<std::string_view> SplitPattern(std::string_view pattern) {
    }
    return ret;
 }
+// -------------------------------------------------------------------------------------

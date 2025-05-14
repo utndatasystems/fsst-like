@@ -163,6 +163,32 @@ void FsstDecoder::PrintSymbolTable(ostream& os) const
    }
 }
 // -------------------------------------------------------------------------------------
+std::vector<std::string> FsstDecoder::ExtractFsstTable() const
+{
+   // TODO: Maybe use `std::string_view`?
+   // Resize / assign. Note: This is really a `resize`, and not a `reserve`, since this state machine will see many data blocks.
+   std::vector<std::string> fsst_symbols(GetSymbolTableSize());
+
+   for (unsigned index = 0, limit = GetSymbolTableSize(); index != limit; ++index) {
+      // Take the raw symbol.
+      auto raw_symbol = GetSymbolTable().symbol[index];
+
+      // Skip over this symbol. Note: In principle, all the corrupt (invalid) symbols should have been put _at the end_ of the table.
+      if (raw_symbol == FSST_CORRUPT) {
+         continue;
+      }
+
+      // Fetch the symbol.
+      std::string symbol = SymbolToStr(index);
+
+      // Add symbol.
+      fsst_symbols[index] = symbol;
+   }
+
+   // And return.
+   return fsst_symbols;
+}
+// -------------------------------------------------------------------------------------
 uint8_t FsstDecoder::FindLongestSymbol(string_view text, bool allow_prefix) const
 {
    fsst_decoder_t* symbol_table = reinterpret_cast<fsst_decoder_t*>(decoder);

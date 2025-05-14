@@ -57,6 +57,9 @@ public:
 
    uint8_t FindLongestSymbol(std::string_view text, bool allow_prefix = false) const;
 
+   // Used in our algorithms.
+   std::vector<std::string> ExtractFsstTable() const;
+
    // Iterate a FSST-encoded string.
    // TODO: Make sure the latest bugs have been fixed from cwida/fsst.
    template<typename ConsumeCode, typename ConsumeChar>
