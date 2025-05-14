@@ -51,7 +51,9 @@ public:
             // The default stop-position is the length of the string.
             unsigned stop_pos = fsst_symbols[code].size();
             accept_symbol(code, &stop_pos);
+            assert(stop_pos <= fsst_symbols[code].size());
 
+            // Save the state we arrived at.
             lookup_table[index * fsst_size + code] = {curr_state, stop_pos};
          }
       }
@@ -134,11 +136,14 @@ public:
 
    inline unsigned accept_symbol_with_lookup(size_t code)
    {
+      // First, save `table_index`, since `curr_state` will change.
+      auto table_index = curr_state * fsst_size + code;
+
       // Use the state lookup table.
-      curr_state = lookup_table[curr_state * fsst_size + code].first;
+      curr_state = lookup_table[table_index].first;
 
       // Return the stop position. This is helpful for the meta-machine.
-      return lookup_table[curr_state * fsst_size + code].second;
+      return lookup_table[table_index].second;
    }
 
    // Another implementation of KMP on uncompressed data.
@@ -225,26 +230,17 @@ public:
    }
 
    // Implementation of LookupKMP on FSST-encoded data.
-   // TODO: Remove `verbose`.
-   bool fsst_lookup_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size, bool verbose = false)
+   bool fsst_lookup_kmp_match(const FsstDecoder& fsstDecoder, size_t lenIn, const unsigned char* strIn, size_t size /*, bool verbose = false */)
    {
       // Init.
       init_state();
 
-      // TODO: Remove the `verbose` part afterwards!!!
-      auto consume_char = [this, verbose](unsigned char c) {
-         if (verbose) {
-            std::cerr << "[consume_char] c=" << c << std::endl;
-         }
+      auto consume_char = [this](unsigned char c) {
          accept(c);
          return curr_state != m;
       };
 
-      auto consume_code = [this, verbose](size_t code) {
-         if (verbose) {
-            std::cerr << "[consume_code] code=" << code << std::endl;
-         }
-
+      auto consume_code = [this](size_t code) {
          accept_symbol_with_lookup(code);
          return curr_state != m;
       };

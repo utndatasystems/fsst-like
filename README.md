@@ -16,6 +16,15 @@ Build FSST:
 ./scripts/fsst-setup.sh
 ```
 
+## Build
+
+```
+mkdir -p build
+cd build
+cmake ..
+make
+```
+
 ## Benchmark
 
 First, prepare the datasets.
@@ -27,6 +36,5 @@ First, prepare the datasets.
 and run
 
 ```
-make
-./main
+./build/main data/l_comment.csv %special%
 ```
