@@ -1,7 +1,7 @@
 #include "src/BenchmarkDriver.hpp"
 #include "src/SimdEverywhere.hpp"
 #include "src/algos/Comet.hpp"
-#include "src/algos/Skipping.hpp"
+// #include "src/algos/Skipping.hpp"
 #include "src/algos/StartsWith.hpp"
 #include "src/algos/StdFind.hpp"
 // -------------------------------------------------------------------------------------
@@ -17,9 +17,9 @@ int main(int argc, char** argv)
    BenchmarkDriver driver;
    driver.AddEngine(std::make_unique<StdFindEngineFactory>());
    // driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
-   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+   // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+   // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+   // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
    driver.AddEngine(std::make_unique<CometEngineFactory>());
    driver.AddEngine(std::make_unique<CometEngineFactory>());
    driver.AddEngine(std::make_unique<CometEngineFactory>());
