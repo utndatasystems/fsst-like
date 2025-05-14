@@ -116,7 +116,10 @@ public:
       if (pattern.starts_with('%') &&
          pattern.starts_with('%') &&
          pattern.find('_') == std::string::npos) {
+         std::cerr << "[general] start" << std::endl;
          auto meta_state_machine = MetaStateMachine(pattern);
+         std::cerr << "[general] stop" << std::endl;
+
 
          return std::make_unique<CometKmpMetaEngine>(pattern, meta_state_machine);
       }
