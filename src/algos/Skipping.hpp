@@ -1,6 +1,7 @@
 #pragma once
 // -------------------------------------------------------------------------------------
 #include <algorithm>
+#include <chrono>
 #include <set>
 #include "BenchmarkDriver.hpp"
 #include "StateMachine.hpp"
@@ -47,18 +48,14 @@ public:
       auto end = std::chrono::high_resolution_clock::now();
       total += std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
 
-      if (required_symbols.size() <= 2) {
-         // return SkippingScanPerRowSimple(block, result, required_symbols);
-         return SkippingScanPerRowSimple(block, result, required_symbols);
+      if (required_symbols.size() == 1) {
+         return SkippingScanPerRowSimd1(block, result, required_symbols);
       }
-      // if (required_symbols.size() == 1) {
-      //    return SkippingScanPerRowSimd1(block, result, required_symbols);
-      // }
-      // else if (required_symbols.size() == 2) {
-      //    return SkippingScanPerRowSimd2(block, result, required_symbols);
-      // }
+      else if (required_symbols.size() == 2) {
+         return SkippingScanPerRowSimd2(block, result, required_symbols);
+      }
       else {
-         return NormalScan(block, result, required_symbols);
+         return SkippingScanPerRowSimple(block, result, required_symbols);
       }
    }
 
@@ -115,26 +112,21 @@ public:
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
          // Check for required symbol.
-         uint32_t has_any_of_the_required_symbol = 0;
          std::string_view compressed_text = block.GetRow(row_idx);
          for (uint32_t idx = 0; idx < compressed_text.size(); idx += 32) {
             __m256i value_vec = _mm256_loadu_si256((__m256i*)(compressed_text.data() + idx));
             __m256i byte_mask_vec = _mm256_cmpeq_epi8(value_vec, symbol_vec);
-            has_any_of_the_required_symbol |= _mm256_movemask_epi8(byte_mask_vec);
+            if (_mm256_movemask_epi8(byte_mask_vec)) {
+               // Otherwise, use Mihail's slow but still fast matcher.
+               const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
+               bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+               if (match) {
+                  result[match_count++] = row_idx;
+               }
+            }
          }
 
-         // No math -> easy win.
-         if (!has_any_of_the_required_symbol) {
-            skipped++;
-            continue;
-         }
-
-         // Otherwise, use Mihail's slow but still fast matcher.
-         const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
-         bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
-         if (match) {
-            result[match_count++] = row_idx;
-         }
+         skipped++;
       }
 
       return match_count;
@@ -158,21 +150,16 @@ public:
             __m256i byte_mask_vec = _mm256_or_si256(
                 _mm256_cmpeq_epi8(value_vec, symbol_vec_0),
                 _mm256_cmpeq_epi8(value_vec, symbol_vec_1));
-            has_any_of_the_required_symbol |= _mm256_movemask_epi8(byte_mask_vec);
+            if (_mm256_movemask_epi8(byte_mask_vec)) {
+               const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
+               bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+               if (match) {
+                  result[match_count++] = row_idx;
+               }
+            }
          }
 
-         // No math -> easy win.
-         if (!has_any_of_the_required_symbol) {
-            skipped++;
-            continue;
-         }
-
-         // Otherwise, use Mihail's slow but still fast matcher.
-         const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
-         bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
-         if (match) {
-            result[match_count++] = row_idx;
-         }
+         skipped++;
       }
 
       return match_count;
