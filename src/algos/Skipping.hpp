@@ -21,8 +21,8 @@ public:
 
    ~SkippingEngine()
    {
-      std::cout << "skipped: " << skipped << std::endl;
-      std::cout << "prepare time: " << (total / 1e6) << "ms" << std::endl;
+      // std::cout << "skipped: " << skipped << std::endl;
+      // std::cout << "prepare time: " << (total / 1e6) << "ms" << std::endl;
    }
 
    uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result) final
@@ -40,8 +40,8 @@ public:
 
    uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
    {
-      state_machine.init_fsst_symbols(block.decoder);
-      state_machine.build_lookup_table();
+      state_machine.init(block.decoder);
+      state_machine.precompute();
 
       auto begin = std::chrono::high_resolution_clock::now();
       std::vector<uint8_t> required_symbols = CreateRequiredSymbols(block);
