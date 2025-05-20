@@ -5,6 +5,7 @@
 #include "BenchmarkDriver.hpp"
 #include "StateMachine.hpp"
 #include "Utility.hpp"
+#include "src/SimdEverywhere.hpp"
 // -------------------------------------------------------------------------------------
 class SkippingEngine : public Engine {
 public:
@@ -15,9 +16,12 @@ public:
    {
    }
 
+   uint64_t skipped = 0;
+
    ~SkippingEngine()
    {
-      std::cout << "total ns: " << (total_ns / 1e6) << std::endl;
+      std::cout << "skipped: " << skipped << std::endl;
+      std::cout << "prepare time: " << (total / 1e6) << "ms" << std::endl;
    }
 
    uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result) final
@@ -31,7 +35,7 @@ public:
       return match_count;
    }
 
-   uint64_t total_ns = 0;
+   uint64_t total = 0;
 
    uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
    {
@@ -41,9 +45,44 @@ public:
       auto begin = std::chrono::high_resolution_clock::now();
       std::vector<uint8_t> required_symbols = CreateRequiredSymbols(block);
       auto end = std::chrono::high_resolution_clock::now();
-      uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
-      total_ns += ns;
+      total += std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
 
+      if (required_symbols.size() <= 2) {
+         // return SkippingScanPerRowSimple(block, result, required_symbols);
+         return SkippingScanPerRowSimple(block, result, required_symbols);
+      }
+      // if (required_symbols.size() == 1) {
+      //    return SkippingScanPerRowSimd1(block, result, required_symbols);
+      // }
+      // else if (required_symbols.size() == 2) {
+      //    return SkippingScanPerRowSimd2(block, result, required_symbols);
+      // }
+      else {
+         return NormalScan(block, result, required_symbols);
+      }
+   }
+
+   uint32_t NormalScan(const FsstBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
+   {
+      uint32_t match_count = 0;
+      for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
+         // Get encoded row.
+         std::string_view compressed_text = block.GetRow(row_idx);
+
+         // Matching code.
+         const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
+         // bool match = state_machine.fsst_lookup_kmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+         bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+         if (match) {
+            result[match_count++] = row_idx;
+         }
+      }
+
+      return match_count;
+   }
+
+   uint32_t SkippingScanPerRowSimple(const FsstBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
+   {
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
          // Get encoded row.
@@ -52,16 +91,169 @@ public:
             return compressed_text.find(symbol) != std::string_view::npos;
          });
          if (!has_any_of_the_required_symbol) {
+            skipped++;
             continue;
          }
 
-         // Match.
+         // Matching code.
+         const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
+         bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+         if (match) {
+            result[match_count++] = row_idx;
+         }
+      }
+
+      return match_count;
+   }
+
+   uint32_t SkippingScanPerRowSimd1(const FsstBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
+   {
+      assert(required_symbols.size() == 1);
+      uint8_t symbol = required_symbols[0];
+      __m256i symbol_vec = _mm256_set1_epi8(symbol);
+
+      uint32_t match_count = 0;
+      for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
+         // Check for required symbol.
+         uint32_t has_any_of_the_required_symbol = 0;
+         std::string_view compressed_text = block.GetRow(row_idx);
+         for (uint32_t idx = 0; idx < compressed_text.size(); idx += 32) {
+            __m256i value_vec = _mm256_loadu_si256((__m256i*)(compressed_text.data() + idx));
+            __m256i byte_mask_vec = _mm256_cmpeq_epi8(value_vec, symbol_vec);
+            has_any_of_the_required_symbol |= _mm256_movemask_epi8(byte_mask_vec);
+         }
+
+         // No math -> easy win.
+         if (!has_any_of_the_required_symbol) {
+            skipped++;
+            continue;
+         }
+
+         // Otherwise, use Mihail's slow but still fast matcher.
+         const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
+         bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+         if (match) {
+            result[match_count++] = row_idx;
+         }
+      }
+
+      return match_count;
+   }
+
+   uint32_t SkippingScanPerRowSimd2(const FsstBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
+   {
+      assert(required_symbols.size() == 2);
+      uint8_t symbol_0 = required_symbols[0];
+      uint8_t symbol_1 = required_symbols[1];
+      __m256i symbol_vec_0 = _mm256_set1_epi8(symbol_0);
+      __m256i symbol_vec_1 = _mm256_set1_epi8(symbol_1);
+
+      uint32_t match_count = 0;
+      for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
+         // Check for required symbol.
+         uint32_t has_any_of_the_required_symbol = 0;
+         std::string_view compressed_text = block.GetRow(row_idx);
+         for (uint32_t idx = 0; idx < compressed_text.size(); idx += 32) {
+            __m256i value_vec = _mm256_loadu_si256((__m256i*)(block.data.data() + idx));
+            __m256i byte_mask_vec = _mm256_or_si256(
+                _mm256_cmpeq_epi8(value_vec, symbol_vec_0),
+                _mm256_cmpeq_epi8(value_vec, symbol_vec_1));
+            has_any_of_the_required_symbol |= _mm256_movemask_epi8(byte_mask_vec);
+         }
+
+         // No math -> easy win.
+         if (!has_any_of_the_required_symbol) {
+            skipped++;
+            continue;
+         }
+
+         // Otherwise, use Mihail's slow but still fast matcher.
+         const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
+         bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+         if (match) {
+            result[match_count++] = row_idx;
+         }
+      }
+
+      return match_count;
+   }
+
+   std::vector<uint8_t> byte_mask;
+
+   void CreateByteMask(const FsstBlock& block, const std::vector<uint8_t>& required_symbols)
+   {
+      // Reset byte mask.
+      uint32_t text_size = block.data.size();
+      byte_mask.resize(text_size);
+      memset(byte_mask.data(), 0, text_size);
+
+      // SIMD scan.
+      if (required_symbols.size() == 1) {
+         uint8_t symbol = required_symbols[0];
+         __m256i symbol_vec = _mm256_set1_epi8(symbol);
+         uint32_t idx = 0;
+         for (; idx + 31 < text_size; idx += 32) {
+            __m256i value_vec = _mm256_loadu_si256((__m256i*)(block.data.data() + idx));
+            __m256i byte_mask_vec = _mm256_cmpeq_epi8(value_vec, symbol_vec);
+            _mm256_storeu_si256((__m256i*)(byte_mask.data() + idx), byte_mask_vec);
+         }
+         for (; idx < text_size; idx++) {
+            byte_mask[idx] = byte_mask[idx] == symbol ? 0xFF : 0;
+         }
+         return;
+      }
+      else if (required_symbols.size() == 2) {
+         uint8_t symbol_0 = required_symbols[0];
+         uint8_t symbol_1 = required_symbols[1];
+         __m256i symbol_vec_0 = _mm256_set1_epi8(symbol_0);
+         __m256i symbol_vec_1 = _mm256_set1_epi8(symbol_1);
+         uint32_t idx = 0;
+         for (; idx + 31 < text_size; idx += 32) {
+            __m256i value_vec = _mm256_loadu_si256((__m256i*)(block.data.data() + idx));
+            __m256i byte_mask_vec = _mm256_or_si256(
+                _mm256_cmpeq_epi8(value_vec, symbol_vec_0),
+                _mm256_cmpeq_epi8(value_vec, symbol_vec_1));
+            _mm256_storeu_si256((__m256i*)(byte_mask.data() + idx), byte_mask_vec);
+         }
+         for (; idx < text_size; idx++) {
+            byte_mask[idx] = (byte_mask[idx] == symbol_0 || byte_mask[idx] == symbol_1) ? 0xFF : 0;
+         }
+         return;
+      }
+      else {
+         throw "More than 2 symbols in the byte mask not implemented.";
+      }
+   }
+
+   uint32_t SkippingScanByteMask(const FsstBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
+   {
+      CreateByteMask(block, required_symbols);
+
+      uint32_t match_count = 0;
+      uint32_t limit = block.data.size();
+      uint32_t row_idx = 0;
+      uint32_t pos = 0;
+      while (row_idx < block.row_count) {
+         // Seek to the next potential match.
+         while (pos < limit && byte_mask[pos] == 0) {
+            pos++;
+         }
+
+         // Find the row for this position.
+         while (block.offsets[row_idx + 1] < pos) {
+            row_idx++;
+         }
+
+         // Matching code.
+         std::string_view compressed_text = block.GetRow(row_idx);
          const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
          // bool match = state_machine.fsst_lookup_kmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
          bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
          if (match) {
             result[match_count++] = row_idx;
          }
+         pos = block.offsets[row_idx];
+         row_idx++;
       }
 
       return match_count;

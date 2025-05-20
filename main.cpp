@@ -1,4 +1,5 @@
 #include "src/BenchmarkDriver.hpp"
+#include "src/SimdEverywhere.hpp"
 #include "src/algos/Comet.hpp"
 #include "src/algos/Skipping.hpp"
 #include "src/algos/StartsWith.hpp"
@@ -6,7 +7,7 @@
 // -------------------------------------------------------------------------------------
 using namespace std;
 // -------------------------------------------------------------------------------------
-int main(int argc, char** argv)
+int main(int, char**)
 {
    if (argc != 2) {
       std::cerr << "Usage: " << argv[0] << " <like-pattern:str>" << std::endl;

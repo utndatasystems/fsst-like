@@ -113,6 +113,7 @@ FsstBlock BenchmarkDriver::CreateFsstBlock(const RawBlock& raw_block) const
    fsst_block.row_count = row_count;
    uint32_t compressed_size = encoder.GetEncodedSize(row_count, compressed_ptrs.data(), compressed_lengths.data());
    fsst_block.data.resize(compressed_size);
+   fsst_block.data.reserve(compressed_size + 128); // Reserve some space for easy SIMD.
    memcpy(fsst_block.data.data(), compressed_buffer.data(), compressed_size);
    for (uint32_t idx = 0; idx < row_count; idx++) {
       fsst_block.offsets[idx] = compressed_ptrs[idx] - compressed_buffer.data();
