@@ -48,18 +48,24 @@ public:
       auto end = std::chrono::high_resolution_clock::now();
       total += std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
 
-      if (required_symbols.size() == 1) {
-         return SkippingScanPerRowSimd1(block, result, required_symbols);
+      if (required_symbols.empty()) {
+         return NormalScan(block, result);
       }
-      else if (required_symbols.size() == 2) {
-         return SkippingScanPerRowSimd2(block, result, required_symbols);
-      }
-      else {
-         return SkippingScanPerRowSimple(block, result, required_symbols);
-      }
+
+      return SkippingScanPerRowSimple(block, result, required_symbols);
+
+      // if (required_symbols.size() == 1) {
+      //    return SkippingScanPerRowSimd1(block, result, required_symbols);
+      // }
+      // else if (required_symbols.size() == 2) {
+      //    return SkippingScanPerRowSimd2(block, result, required_symbols);
+      // }
+      // else {
+      //    return SkippingScanPerRowSimple(block, result, required_symbols);
+      // }
    }
 
-   uint32_t NormalScan(const FsstBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
+   uint32_t NormalScan(const FsstBlock& block, std::vector<uint32_t>& result)
    {
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
@@ -80,6 +86,8 @@ public:
 
    uint32_t SkippingScanPerRowSimple(const FsstBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
    {
+      assert(!required_symbols.empty());
+
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
          // Get encoded row.
@@ -88,11 +96,11 @@ public:
             return compressed_text.find(symbol) != std::string_view::npos;
          });
          if (!has_any_of_the_required_symbol) {
-            skipped++;
             continue;
          }
 
          // Matching code.
+         skipped++;
          const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
          bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
          if (match) {
@@ -123,10 +131,10 @@ public:
                if (match) {
                   result[match_count++] = row_idx;
                }
+               skipped++;
+               break;
             }
          }
-
-         skipped++;
       }
 
       return match_count;
@@ -143,7 +151,6 @@ public:
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
          // Check for required symbol.
-         uint32_t has_any_of_the_required_symbol = 0;
          std::string_view compressed_text = block.GetRow(row_idx);
          for (uint32_t idx = 0; idx < compressed_text.size(); idx += 32) {
             __m256i value_vec = _mm256_loadu_si256((__m256i*)(block.data.data() + idx));
@@ -156,10 +163,10 @@ public:
                if (match) {
                   result[match_count++] = row_idx;
                }
+               skipped++;
+               break;
             }
          }
-
-         skipped++;
       }
 
       return match_count;
