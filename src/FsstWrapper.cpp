@@ -143,13 +143,17 @@ pair<bool, uint32_t> FsstDecoder::Encode(string_view text, span<char> output) co
    return make_pair(read_idx == text.size(), write_idx);
 }
 // -------------------------------------------------------------------------------------
-std::string FsstDecoder::SymbolToStr(unsigned code_index) const
+std::string FsstDecoder::SymbolToStr(unsigned code_index, bool debug) const
 {
    fsst_decoder_t* symbol_table = reinterpret_cast<fsst_decoder_t*>(decoder);
    std::string ret;
    for (uint32_t jdx = 0; jdx < symbol_table->len[code_index]; jdx++) {
       char c = static_cast<char>(symbol_table->symbol[code_index] >> (jdx * 8));
-      ret += c == ' ' ? '_' : c; // TODO(alex): Just tmp to debug, spaces are hard to read :(
+
+      // Convert spaces to underscores in the debug mode.
+      if ((debug) && (c == ' '))
+         c = '_';
+      ret += c;
    }
    return ret;
 }
