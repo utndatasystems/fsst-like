@@ -4,3 +4,6 @@
 [submodule "perfevent"]
 	path = perfevent
 	url = git@github.com:viktorleis/perfevent.git
+[submodule "simde"]
+	path = simde
+	url = https://github.com/simd-everywhere/simde.git
