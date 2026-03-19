@@ -42,10 +42,10 @@ int main(int argc, char** argv)
 
    if (codec == CompressionCodec::Fsst) {
       // FSST-specific compressed-path experiments.
-      driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
-      driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-      driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-      driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+      // driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
+      // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+      // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+      // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
 
       // Comet.
       driver.AddEngine(std::make_unique<CometEngineFactory>());

@@ -60,6 +60,9 @@ void BenchmarkDriver::LoadBlocks(string_view file_path, CompressionCodec codec)
 void BenchmarkDriver::Run(string_view pattern)
 {
    vector<uint32_t> result(BLOCK_SIZE);
+
+   std::cout << "engine, #raw, #compressed, raw [ms], compressed [ms]" << std::endl;
+
    for (auto& engine_factory : engine_factories) {
       // Create engine
       auto engine = engine_factory->Create(pattern);

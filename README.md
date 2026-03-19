@@ -25,6 +25,16 @@ cmake ..
 make
 ```
 
+### Build `token-vldb2026`
+
+From repo root:
+
+```bash
+cmake -S third-party/token-vldb2026 -B third-party/token-vldb2026/build \
+  -DSGTT_TOKENIZER_RUNTIME_BIN=ON
+cmake --build third-party/token-vldb2026/build -j20
+```
+
 ## Benchmark
 
 First, prepare the datasets.

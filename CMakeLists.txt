@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wall -march=native -O3 -fno-stack-protector")
 
 # Add include directories
-include_directories(fsst src .)
+include_directories(fsst src . third-party/token-vldb2026/src)
 
 # Optionally define NDEBUG if in release mode
 if(NDEBUG)
@@ -27,9 +27,11 @@ set(SOURCES
     src/BenchmarkDriver.cpp
     src/FsstWrapper.cpp
     src/TokenizerCodec.cpp
+    src/SgttCompressorShim.cpp
     src/Utility.cpp
     src/StateMachine.cpp
     src/MetaStateMachine.cpp
+    third-party/token-vldb2026/src/compressor/TokenizerCompressor.cpp
 )
 
 # Add the FSST static library path
@@ -37,6 +39,12 @@ link_directories(${CMAKE_SOURCE_DIR}/fsst/build)
 
 # Define the executable
 add_executable(main ${SOURCES})
+
+# Absolute default path to tokenizer dictionary so execution from build/ works.
+target_compile_definitions(main PRIVATE
+    SGTT_TOKENIZER_RUNTIME_BIN=1
+    SGTT_TOKENIZER_BIN_DIR="${CMAKE_SOURCE_DIR}/third-party/token-vldb2026/src/tokens/openai100kpatched"
+)
 
 # Link against FSST
 target_link_libraries(main fsst)
