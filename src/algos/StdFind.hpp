@@ -22,7 +22,7 @@ public:
       return match_count;
    }
 
-   uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
+   uint32_t Scan(const CompressedBlock& block, std::vector<uint32_t>& result) final
    {
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {

@@ -11,12 +11,24 @@ using namespace std;
 // -------------------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
-   if (argc != 3) {
-      std::cerr << "Usage: " << argv[0] << " <column:file> <like-pattern:str>" << std::endl;
+   if (argc < 3 || argc > 4) {
+      std::cerr << "Usage: " << argv[0] << " <column:file> <like-pattern:str> [fsst|tokenizer]" << std::endl;
       exit(-1);
    }
 
    BenchmarkDriver driver;
+   CompressionCodec codec = CompressionCodec::Fsst;
+   if (argc == 4) {
+      std::string codec_arg = argv[3];
+      if (codec_arg == "fsst") {
+         codec = CompressionCodec::Fsst;
+      } else if (codec_arg == "tokenizer") {
+         codec = CompressionCodec::Tokenizer;
+      } else {
+         std::cerr << "Unknown codec '" << codec_arg << "'. Expected one of: fsst, tokenizer." << std::endl;
+         return 1;
+      }
+   }
 
    // std::find.
    driver.AddEngine(std::make_unique<StdFindEngineFactory>());
@@ -30,14 +42,16 @@ int main(int argc, char** argv)
 
    // std::starts_with.
    driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
-   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-   driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+   if (codec == CompressionCodec::Fsst) {
+      driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+      driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+      driver.AddEngine(std::make_unique<SkippingEngineFactory>());
 
-   // Comet.
-   driver.AddEngine(std::make_unique<CometEngineFactory>());
-   driver.AddEngine(std::make_unique<CometEngineFactory>());
-   driver.AddEngine(std::make_unique<CometEngineFactory>());
+      // Comet.
+      driver.AddEngine(std::make_unique<CometEngineFactory>());
+      driver.AddEngine(std::make_unique<CometEngineFactory>());
+      driver.AddEngine(std::make_unique<CometEngineFactory>());
+   }
 
    auto file_path = argv[1];
    auto pattern = argv[2];
@@ -48,9 +62,9 @@ int main(int argc, char** argv)
       return 1;
    }
 
-   std::cout << "Running: " << pattern << " on " << file_path << std::endl;
+   std::cout << "Running: " << pattern << " on " << file_path << " (codec=" << (codec == CompressionCodec::Fsst ? "fsst" : "tokenizer") << ")" << std::endl;
    std::cout << "--------" << std::endl;
-   driver.LoadBlocks(file_path);
+   driver.LoadBlocks(file_path, codec);
    driver.Run(pattern);
 
    // std::cout << "" << std::endl;

@@ -23,7 +23,7 @@ public:
       return match_count;
    }
 
-   void InitializeForCompressedScan(const FsstBlock& block)
+   void InitializeForCompressedScan(const CompressedBlock& block)
    {
       // Init the FSST symbols.
       machine.init(block.decoder);
@@ -32,7 +32,7 @@ public:
       machine.precompute();
    }
 
-   uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
+   uint32_t Scan(const CompressedBlock& block, std::vector<uint32_t>& result) final
    {
       // std::cerr << "[Scan] start" << std::endl;
       InitializeForCompressedScan(block);

@@ -10,8 +10,12 @@
 #include "fsst/fsst.h"
 // -------------------------------------------------------------------------------------
 constexpr uint32_t BLOCK_SIZE = 64 * 1024;
+enum class CompressionCodec {
+   Fsst,
+   Tokenizer
+};
 // -------------------------------------------------------------------------------------
-struct FsstBlock {
+struct CompressedBlock {
    uint32_t row_count;
    std::vector<char> data;
    FsstDecoder decoder;
@@ -55,7 +59,7 @@ public:
    virtual ~Engine() = default;
 
    // Called once for each block.
-   virtual uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) = 0;
+   virtual uint32_t Scan(const CompressedBlock& block, std::vector<uint32_t>& result) = 0;
    virtual uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result) = 0;
 };
 // -------------------------------------------------------------------------------------
@@ -71,14 +75,16 @@ public:
 class BenchmarkDriver {
 public:
    void AddEngine(std::unique_ptr<EngineFactory> engine_factory);
-   void LoadBlocks(std::string_view file_path);
+   void LoadBlocks(std::string_view file_path, CompressionCodec codec = CompressionCodec::Fsst);
    void Run(std::string_view pattern);
 
 private:
    std::vector<std::unique_ptr<EngineFactory>> engine_factories;
    std::vector<RawBlock> raw_blocks;
-   std::vector<FsstBlock> fsst_blocks;
+   std::vector<CompressedBlock> compressed_blocks;
+   CompressionCodec codec = CompressionCodec::Fsst;
 
-   FsstBlock CreateFsstBlock(const RawBlock& raw_block) const;
+   CompressedBlock CreateFsstBlock(const RawBlock& raw_block) const;
+   CompressedBlock CreateTokenizerBlock(const RawBlock& raw_block) const;
 };
 // -------------------------------------------------------------------------------------

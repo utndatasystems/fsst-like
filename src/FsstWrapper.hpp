@@ -2,6 +2,7 @@
 // -------------------------------------------------------------------------------------
 #include <iostream>
 #include <span>
+#include "TokenizerCodec.hpp"
 #include "Utility.hpp"
 #include "fsst.h"
 // -------------------------------------------------------------------------------------
@@ -36,6 +37,8 @@ public:
    ~FsstDecoder();
 
    uint32_t DeserializeDecoder(std::span<const char> input);
+   void InitializeTokenizerMode();
+   bool IsTokenizerMode() const { return mode == DecoderMode::Tokenizer; }
 
    // Returns number of bytes written to output (failed if `>output.size()`).
    uint32_t Decode(std::span<const char> input, std::span<char> output) const;
@@ -53,7 +56,7 @@ public:
    fsst_decoder_t& GetSymbolTable() const { return *decoder; }
 
    // How much memory is required so that FSST can fast decompress into it.
-   uint32_t GetIdealBufferSize(uint32_t compressed_size) const { return compressed_size * 8 + 32; }
+   uint32_t GetIdealBufferSize(uint32_t compressed_size) const;
 
    uint8_t FindLongestSymbol(std::string_view text, bool allow_prefix = false) const;
 
@@ -160,8 +163,15 @@ public:
       return false; /* full size of decompressed string (could be >size, then the actually decompressed part) */
    }
 private:
-   uint32_t symbol_table_size;
+   enum class DecoderMode {
+      Fsst,
+      Tokenizer
+   };
+
+   DecoderMode mode = DecoderMode::Fsst;
+   uint32_t symbol_table_size = 0;
    fsst_decoder_t* decoder = nullptr;
+   static void DecodeTokenizer(std::span<const char> input, std::vector<char>& output);
 
    static uint32_t CountMatchingBytes(std::string_view text, uint64_t symbol, uint32_t len);
 };

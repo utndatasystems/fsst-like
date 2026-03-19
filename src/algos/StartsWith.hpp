@@ -23,7 +23,7 @@ public:
       return match_count;
    }
 
-   uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result)
+   uint32_t Scan(const CompressedBlock& block, std::vector<uint32_t>& result)
    {
       uint8_t symbol = block.decoder.FindLongestSymbol(pattern, false);
 

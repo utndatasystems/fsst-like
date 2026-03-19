@@ -1,4 +1,5 @@
 #include "BenchmarkDriver.hpp"
+#include "TokenizerCodec.hpp"
 #include <chrono>
 #include <fstream>
 // -------------------------------------------------------------------------------------
@@ -9,10 +10,11 @@ void BenchmarkDriver::AddEngine(unique_ptr<EngineFactory> engine_factory)
    engine_factories.push_back(move(engine_factory));
 }
 // -------------------------------------------------------------------------------------
-void BenchmarkDriver::LoadBlocks(string_view file_path)
+void BenchmarkDriver::LoadBlocks(string_view file_path, CompressionCodec codec)
 {
+   this->codec = codec;
    raw_blocks.clear();
-   fsst_blocks.clear();
+   compressed_blocks.clear();
 
    // Open the file.
    string path_as_string(file_path);
@@ -47,7 +49,11 @@ void BenchmarkDriver::LoadBlocks(string_view file_path)
 
    // Compress all blocks.
    for (RawBlock& raw_block : raw_blocks) {
-      fsst_blocks.push_back(CreateFsstBlock(raw_block));
+      if (codec == CompressionCodec::Fsst) {
+         compressed_blocks.push_back(CreateFsstBlock(raw_block));
+      } else {
+         compressed_blocks.push_back(CreateTokenizerBlock(raw_block));
+      }
    }
 }
 // -------------------------------------------------------------------------------------
@@ -73,7 +79,7 @@ void BenchmarkDriver::Run(string_view pattern)
       // Run compressed
       uint32_t compressed_row_count = 0;
       auto compressed_begin = std::chrono::high_resolution_clock::now();
-      for (auto& block : fsst_blocks) {
+      for (auto& block : compressed_blocks) {
          compressed_row_count += engine->Scan(block, result);
       }
       auto compressed_end = std::chrono::high_resolution_clock::now();
@@ -84,7 +90,7 @@ void BenchmarkDriver::Run(string_view pattern)
    }
 }
 // -------------------------------------------------------------------------------------
-FsstBlock BenchmarkDriver::CreateFsstBlock(const RawBlock& raw_block) const
+CompressedBlock BenchmarkDriver::CreateFsstBlock(const RawBlock& raw_block) const
 {
    uint32_t row_count = raw_block.row_count;
 
@@ -109,7 +115,7 @@ FsstBlock BenchmarkDriver::CreateFsstBlock(const RawBlock& raw_block) const
    assert(compressed_row_count == row_count);
 
    // Store the compressed data in the block.
-   FsstBlock fsst_block;
+   CompressedBlock fsst_block;
    fsst_block.row_count = row_count;
    uint32_t compressed_size = encoder.GetEncodedSize(row_count, compressed_ptrs.data(), compressed_lengths.data());
    fsst_block.data.resize(compressed_size);
@@ -137,5 +143,31 @@ FsstBlock BenchmarkDriver::CreateFsstBlock(const RawBlock& raw_block) const
    }
 
    return fsst_block;
+}
+// -------------------------------------------------------------------------------------
+CompressedBlock BenchmarkDriver::CreateTokenizerBlock(const RawBlock& raw_block) const
+{
+   CompressedBlock compressed_block;
+   compressed_block.row_count = raw_block.row_count;
+   compressed_block.offsets[0] = 0;
+   compressed_block.used_chars.reset();
+
+   for (uint32_t idx = 0; idx < raw_block.row_count; idx++) {
+      uint32_t start = raw_block.offsets[idx];
+      uint32_t end = raw_block.offsets[idx + 1];
+      uint32_t row_size = end - start;
+
+      std::span<const char> input(raw_block.data.data() + start, row_size);
+      std::vector<char> encoded_row;
+      tokenizer_codec::Compress(input, encoded_row);
+
+      uint32_t compressed_start = compressed_block.data.size();
+      compressed_block.data.resize(compressed_start + encoded_row.size());
+      memcpy(compressed_block.data.data() + compressed_start, encoded_row.data(), encoded_row.size());
+      compressed_block.offsets[idx + 1] = compressed_block.data.size();
+   }
+
+   compressed_block.decoder.InitializeTokenizerMode();
+   return compressed_block;
 }
 // -------------------------------------------------------------------------------------

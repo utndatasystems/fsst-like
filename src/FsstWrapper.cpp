@@ -79,6 +79,7 @@ FsstDecoder::FsstDecoder(FsstDecoder&& other)
    if (decoder) {
       delete reinterpret_cast<fsst_decoder_t*>(decoder);
    }
+   mode = other.mode;
    decoder = other.decoder;
    symbol_table_size = other.symbol_table_size;
    other.decoder = nullptr;
@@ -94,6 +95,7 @@ FsstDecoder::~FsstDecoder()
 // -------------------------------------------------------------------------------------
 uint32_t FsstDecoder::DeserializeDecoder(span<const char> input)
 {
+   mode = DecoderMode::Fsst;
    if (!decoder) {
       decoder = new fsst_decoder_t();
    }
@@ -108,8 +110,24 @@ uint32_t FsstDecoder::DeserializeDecoder(span<const char> input)
    return consumed;
 }
 // -------------------------------------------------------------------------------------
+void FsstDecoder::InitializeTokenizerMode()
+{
+   mode = DecoderMode::Tokenizer;
+   symbol_table_size = 0;
+}
+// -------------------------------------------------------------------------------------
 uint32_t FsstDecoder::Decode(span<const char> input, span<char> decoded) const
 {
+   if (mode == DecoderMode::Tokenizer) {
+      std::vector<char> decompressed;
+      DecodeTokenizer(input, decompressed);
+      if (decompressed.size() > decoded.size()) {
+         return decompressed.size();
+      }
+      memcpy(decoded.data(), decompressed.data(), decompressed.size());
+      return decompressed.size();
+   }
+
    assert(decoder);
    const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(input.data());
    unsigned char* cast_decoded = reinterpret_cast<unsigned char*>(decoded.data());
@@ -121,8 +139,22 @@ uint32_t FsstDecoder::Decode(span<const char> input, span<char> decoded) const
                           cast_decoded);
 }
 // -------------------------------------------------------------------------------------
+uint32_t FsstDecoder::GetIdealBufferSize(uint32_t compressed_size) const
+{
+   return compressed_size * 8 + 32;
+}
+// -------------------------------------------------------------------------------------
+void FsstDecoder::DecodeTokenizer(std::span<const char> input, std::vector<char>& output)
+{
+   tokenizer_codec::Decompress(input, output);
+}
+// -------------------------------------------------------------------------------------
 pair<bool, uint32_t> FsstDecoder::Encode(string_view text, span<char> output) const
 {
+   if (mode == DecoderMode::Tokenizer) {
+      return make_pair(false, 0);
+   }
+
    fsst_decoder_t* symbol_table = reinterpret_cast<fsst_decoder_t*>(decoder);
 
    uint32_t read_idx = 0;
@@ -145,6 +177,10 @@ pair<bool, uint32_t> FsstDecoder::Encode(string_view text, span<char> output) co
 // -------------------------------------------------------------------------------------
 std::string FsstDecoder::SymbolToStr(unsigned code_index, bool debug) const
 {
+   if (mode == DecoderMode::Tokenizer) {
+      return "";
+   }
+
    fsst_decoder_t* symbol_table = reinterpret_cast<fsst_decoder_t*>(decoder);
    std::string ret;
    for (uint32_t jdx = 0; jdx < symbol_table->len[code_index]; jdx++) {
@@ -160,6 +196,11 @@ std::string FsstDecoder::SymbolToStr(unsigned code_index, bool debug) const
 // -------------------------------------------------------------------------------------
 void FsstDecoder::PrintSymbolTable(ostream& os) const
 {
+   if (mode == DecoderMode::Tokenizer) {
+      os << "Tokenizer mode: no FSST symbol table available." << endl;
+      return;
+   }
+
    fsst_decoder_t* symbol_table = reinterpret_cast<fsst_decoder_t*>(decoder);
    for (uint32_t idx = 0; idx < symbol_table_size; idx++) {
       os << "idx: " << idx << ", len: " << static_cast<int>(symbol_table->len[idx]) << ", symbol: ";
@@ -169,6 +210,10 @@ void FsstDecoder::PrintSymbolTable(ostream& os) const
 // -------------------------------------------------------------------------------------
 std::vector<std::string> FsstDecoder::ExtractFsstTable() const
 {
+   if (mode == DecoderMode::Tokenizer) {
+      return {};
+   }
+
    // TODO: Maybe use `std::string_view`?
    // Resize / assign. Note: This is really a `resize`, and not a `reserve`, since this state machine will see many data blocks.
    std::vector<std::string> fsst_symbols(GetSymbolTableSize());
@@ -195,6 +240,10 @@ std::vector<std::string> FsstDecoder::ExtractFsstTable() const
 // -------------------------------------------------------------------------------------
 uint8_t FsstDecoder::FindLongestSymbol(string_view text, bool allow_prefix) const
 {
+   if (mode == DecoderMode::Tokenizer) {
+      return 255;
+   }
+
    fsst_decoder_t* symbol_table = reinterpret_cast<fsst_decoder_t*>(decoder);
 
    uint32_t longest_match = 0;

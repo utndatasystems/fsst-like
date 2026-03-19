@@ -38,7 +38,7 @@ public:
 
    uint64_t total = 0;
 
-   uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) final
+   uint32_t Scan(const CompressedBlock& block, std::vector<uint32_t>& result) final
    {
       state_machine.init(block.decoder);
       state_machine.precompute();
@@ -65,7 +65,7 @@ public:
       // }
    }
 
-   uint32_t NormalScan(const FsstBlock& block, std::vector<uint32_t>& result)
+   uint32_t NormalScan(const CompressedBlock& block, std::vector<uint32_t>& result)
    {
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
@@ -84,7 +84,7 @@ public:
       return match_count;
    }
 
-   uint32_t SkippingScanPerRowSimple(const FsstBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
+   uint32_t SkippingScanPerRowSimple(const CompressedBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
    {
       assert(!required_symbols.empty());
 
@@ -111,7 +111,7 @@ public:
       return match_count;
    }
 
-   uint32_t SkippingScanPerRowSimd1(const FsstBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
+   uint32_t SkippingScanPerRowSimd1(const CompressedBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
    {
       assert(required_symbols.size() == 1);
       uint8_t symbol = required_symbols[0];
@@ -140,7 +140,7 @@ public:
       return match_count;
    }
 
-   uint32_t SkippingScanPerRowSimd2(const FsstBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
+   uint32_t SkippingScanPerRowSimd2(const CompressedBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
    {
       assert(required_symbols.size() == 2);
       uint8_t symbol_0 = required_symbols[0];
@@ -174,7 +174,7 @@ public:
 
    std::vector<uint8_t> byte_mask;
 
-   void CreateByteMask(const FsstBlock& block, const std::vector<uint8_t>& required_symbols)
+   void CreateByteMask(const CompressedBlock& block, const std::vector<uint8_t>& required_symbols)
    {
       // Reset byte mask.
       uint32_t text_size = block.data.size();
@@ -219,7 +219,7 @@ public:
       }
    }
 
-   uint32_t SkippingScanByteMask(const FsstBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
+   uint32_t SkippingScanByteMask(const CompressedBlock& block, std::vector<uint32_t>& result, const std::vector<uint8_t>& required_symbols)
    {
       CreateByteMask(block, required_symbols);
 
@@ -258,7 +258,7 @@ private:
    std::vector<char> decode_buffer;
    StateMachine2 state_machine;
 
-   void PrintPaths(const FsstBlock& block, const std::set<std::vector<uint8_t>>& possible_full_paths)
+   void PrintPaths(const CompressedBlock& block, const std::set<std::vector<uint8_t>>& possible_full_paths)
    {
       std::cout << "There are " << possible_full_paths.size() << " paths through the pattern." << std::endl;
       for (const auto& path : possible_full_paths) {
@@ -271,7 +271,7 @@ private:
    }
 
    // Entries from symbol table where their suffix is a prefix of the pattern.
-   std::vector<uint8_t> GetSymbolsWithSuffix(const FsstBlock& block, uint32_t shift, std::string_view pattern) const
+   std::vector<uint8_t> GetSymbolsWithSuffix(const CompressedBlock& block, uint32_t shift, std::string_view pattern) const
    {
       std::vector<uint8_t> symbols;
       for (uint32_t symbol = 0; symbol < block.decoder.GetSymbolTableSize(); symbol++) {
@@ -288,7 +288,7 @@ private:
       return symbols;
    }
 
-   std::vector<uint8_t> GetSymbolsWithPrefix(const FsstBlock& block, std::string_view pattern) const
+   std::vector<uint8_t> GetSymbolsWithPrefix(const CompressedBlock& block, std::string_view pattern) const
    {
       std::vector<uint8_t> symbols;
       for (uint32_t symbol = 0; symbol < block.decoder.GetSymbolTableSize(); symbol++) {
@@ -300,7 +300,7 @@ private:
       return symbols;
    }
 
-   std::vector<uint8_t> GetSymbolsContainingFullPattern(const FsstBlock& block) const
+   std::vector<uint8_t> GetSymbolsContainingFullPattern(const CompressedBlock& block) const
    {
       std::vector<uint8_t> symbols;
       for (uint32_t symbol = 0; symbol < block.decoder.GetSymbolTableSize(); symbol++) {
@@ -312,7 +312,7 @@ private:
       return symbols;
    }
 
-   void BuildFullPaths(const FsstBlock& block, uint32_t idx, const std::vector<uint8_t>& path, std::set<std::vector<uint8_t>>& result)
+   void BuildFullPaths(const CompressedBlock& block, uint32_t idx, const std::vector<uint8_t>& path, std::set<std::vector<uint8_t>>& result)
    {
       auto is_possible = [&](std::string_view symbol_text, std::vector<uint8_t>& symbols, uint32_t remaining_pattern_size) {
          if (symbol_text.size() >= remaining_pattern_size) {
@@ -345,7 +345,7 @@ private:
       }
    }
 
-   std::vector<uint8_t> CreateRequiredSymbols(const FsstBlock& block)
+   std::vector<uint8_t> CreateRequiredSymbols(const CompressedBlock& block)
    {
       std::set<std::vector<uint8_t>> possible_full_paths;
 
