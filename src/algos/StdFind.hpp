@@ -99,10 +99,23 @@ public:
    bool Matches(std::string_view text) noexcept { return text.ends_with(pattern); }
 };
 // -------------------------------------------------------------------------------------
+class StdEqualsEngine : public StdEngine<StdEqualsEngine> {
+public:
+   StdEqualsEngine(std::string_view pattern)
+       : StdEngine(pattern) {}
+
+   bool Matches(std::string_view text) noexcept { return text == pattern; }
+};
+// -------------------------------------------------------------------------------------
 class StdFindEngineFactory : public EngineFactory {
 public:
    std::unique_ptr<Engine> Create(std::string_view pattern) final
    {
+      if (pattern.find('%') == std::string::npos &&
+          pattern.find('_') == std::string::npos) {
+         return std::make_unique<StdEqualsEngine>(pattern);
+      }
+
       if (std::count(pattern.begin(), pattern.end(), '%') == 2 &&
           pattern.find('_') == std::string::npos &&
           pattern.starts_with('%') &&

@@ -1,7 +1,10 @@
 #include "BenchmarkDriver.hpp"
-#include "TokenizerCodec.hpp"
+#include "codecs/OnPairCodec.hpp"
+#include "codecs/OnPairPlusCodec.hpp"
+#include "codecs/TokenizerCodec.hpp"
 #include <chrono>
 #include <fstream>
+#include <iomanip>
 // -------------------------------------------------------------------------------------
 using namespace std;
 // -------------------------------------------------------------------------------------
@@ -28,9 +31,14 @@ void BenchmarkDriver::LoadBlocks(string_view file_path, CompressionCodec codec)
    block.offsets[0] = 0;
    string line;
    block.row_count = 0;
+   uint64_t rows_read = 0;
    while (getline(in, line)) {
       block.data.insert(block.data.end(), line.begin(), line.end());
       block.offsets[block.row_count + 1] = block.data.size();
+      rows_read++;
+      if ((rows_read % 500000) == 0) {
+         std::cout << "\rReading rows: " << rows_read << std::flush;
+      }
 
       // If block is full -> append to raw_blocks and reset block.
       block.row_count++;
@@ -46,15 +54,27 @@ void BenchmarkDriver::LoadBlocks(string_view file_path, CompressionCodec codec)
    if (block.row_count > 0) {
       raw_blocks.push_back(move(block));
    }
+   std::cout << "\rReading rows: " << rows_read << " (done)" << std::endl;
 
    // Compress all blocks.
-   for (RawBlock& raw_block : raw_blocks) {
+   const size_t total_blocks = raw_blocks.size();
+   for (size_t block_idx = 0; block_idx < total_blocks; block_idx++) {
+      RawBlock& raw_block = raw_blocks[block_idx];
       if (codec == CompressionCodec::Fsst) {
          compressed_blocks.push_back(CreateFsstBlock(raw_block));
-      } else {
+      } else if (codec == CompressionCodec::Tokenizer) {
          compressed_blocks.push_back(CreateTokenizerBlock(raw_block));
+      } else if (codec == CompressionCodec::OnPair) {
+         compressed_blocks.push_back(CreateOnPairBlock(raw_block));
+      } else {
+         compressed_blocks.push_back(CreateOnPairPlusBlock(raw_block));
       }
+
+      const double pct = total_blocks == 0 ? 100.0 : (100.0 * static_cast<double>(block_idx + 1) / static_cast<double>(total_blocks));
+      std::cout << "\rBuilding compressed blocks: " << (block_idx + 1) << "/" << total_blocks
+                << " (" << std::fixed << std::setprecision(1) << pct << "%)" << std::flush;
    }
+   std::cout << std::endl;
 }
 // -------------------------------------------------------------------------------------
 void BenchmarkDriver::Run(string_view pattern)
@@ -172,6 +192,58 @@ CompressedBlock BenchmarkDriver::CreateTokenizerBlock(const RawBlock& raw_block)
    }
 
    compressed_block.codec = CompressionCodec::Tokenizer;
+   return compressed_block;
+}
+// -------------------------------------------------------------------------------------
+CompressedBlock BenchmarkDriver::CreateOnPairBlock(const RawBlock& raw_block) const
+{
+   CompressedBlock compressed_block;
+   compressed_block.row_count = raw_block.row_count;
+   compressed_block.offsets[0] = 0;
+   compressed_block.used_chars.reset();
+
+   for (uint32_t idx = 0; idx < raw_block.row_count; idx++) {
+      uint32_t start = raw_block.offsets[idx];
+      uint32_t end = raw_block.offsets[idx + 1];
+      uint32_t row_size = end - start;
+
+      std::span<const char> input(raw_block.data.data() + start, row_size);
+      std::vector<char> encoded_row;
+      onpair_codec::Compress(input, encoded_row);
+
+      uint32_t compressed_start = compressed_block.data.size();
+      compressed_block.data.resize(compressed_start + encoded_row.size());
+      memcpy(compressed_block.data.data() + compressed_start, encoded_row.data(), encoded_row.size());
+      compressed_block.offsets[idx + 1] = compressed_block.data.size();
+   }
+
+   compressed_block.codec = CompressionCodec::OnPair;
+   return compressed_block;
+}
+// -------------------------------------------------------------------------------------
+CompressedBlock BenchmarkDriver::CreateOnPairPlusBlock(const RawBlock& raw_block) const
+{
+   CompressedBlock compressed_block;
+   compressed_block.row_count = raw_block.row_count;
+   compressed_block.offsets[0] = 0;
+   compressed_block.used_chars.reset();
+
+   for (uint32_t idx = 0; idx < raw_block.row_count; idx++) {
+      uint32_t start = raw_block.offsets[idx];
+      uint32_t end = raw_block.offsets[idx + 1];
+      uint32_t row_size = end - start;
+
+      std::span<const char> input(raw_block.data.data() + start, row_size);
+      std::vector<char> encoded_row;
+      onpairplus_codec::Compress(input, encoded_row);
+
+      uint32_t compressed_start = compressed_block.data.size();
+      compressed_block.data.resize(compressed_start + encoded_row.size());
+      memcpy(compressed_block.data.data() + compressed_start, encoded_row.data(), encoded_row.size());
+      compressed_block.offsets[idx + 1] = compressed_block.data.size();
+   }
+
+   compressed_block.codec = CompressionCodec::OnPairPlus;
    return compressed_block;
 }
 // -------------------------------------------------------------------------------------

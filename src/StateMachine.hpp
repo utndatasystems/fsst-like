@@ -1,7 +1,7 @@
 #pragma once
 // -------------------------------------------------------------------------------------
 #include <string>
-#include "FsstWrapper.hpp"
+#include "decoders/FsstWrapper.hpp"
 
 class MetaStateMachine;
 

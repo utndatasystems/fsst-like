@@ -1,4 +1,4 @@
-#include "FsstWrapper.hpp"
+#include "decoders/FsstWrapper.hpp"
 #include "fsst.h"
 // -------------------------------------------------------------------------------------
 using namespace std;

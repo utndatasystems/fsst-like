@@ -1,5 +1,5 @@
-#include "TokenizerDecoder.hpp"
-#include "TokenizerCodec.hpp"
+#include "decoders/TokenizerDecoder.hpp"
+#include "codecs/TokenizerCodec.hpp"
 
 #include <cstring>
 

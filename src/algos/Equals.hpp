@@ -2,7 +2,7 @@
 // -------------------------------------------------------------------------------------
 #include <cstring>
 #include "BenchmarkDriver.hpp"
-#include "TokenizerCodec.hpp"
+#include "codecs/TokenizerCodec.hpp"
 // -------------------------------------------------------------------------------------
 class EqualsEngine : public Engine {
 public:
@@ -35,11 +35,11 @@ public:
       bool has_fsst_encoded_pattern = false;
       uint32_t fsst_encoded_pattern_size = 0;
 
-      if (block.IsTokenizerCodec() == false) {
-      const uint32_t required = static_cast<uint32_t>(pattern.size() * 2 + 8);
-      if (required > encoded_pattern_buffer.size()) {
-         encoded_pattern_buffer.resize(required);
-      }
+      if (block.IsFsstCodec()) {
+         const uint32_t required = static_cast<uint32_t>(pattern.size() * 2 + 8);
+         if (required > encoded_pattern_buffer.size()) {
+            encoded_pattern_buffer.resize(required);
+         }
       auto [ok, written] = block.fsst_decoder.Encode(pattern, encoded_pattern_buffer);
       has_fsst_encoded_pattern = ok;
       fsst_encoded_pattern_size = written;
@@ -65,6 +65,16 @@ private:
          return compressed_text == encoded_pattern;
       }
 
+      if (block.IsFsstCodec() == false) {
+         const uint32_t ideal_buffer_size = block.GetIdealBufferSize(compressed_text.size());
+         if (ideal_buffer_size > decode_buffer.size()) {
+            decode_buffer.resize(ideal_buffer_size);
+         }
+         const uint32_t decoded_size = block.Decode(compressed_text, decode_buffer);
+         std::string_view decoded_text(decode_buffer.data(), decoded_size);
+         return decoded_text == pattern;
+      }
+
       assert(has_fsst_encoded_pattern && "FSST equals expects pattern to always encode into pre-sized buffer");
       std::string_view encoded_pattern(encoded_pattern_buffer.data(), fsst_encoded_pattern_size);
       return compressed_text == encoded_pattern;
@@ -73,6 +83,7 @@ private:
    std::string_view pattern;
    std::vector<char> encoded_pattern_buffer;
    std::vector<char> tokenizer_encoded_pattern;
+   std::vector<char> decode_buffer;
 };
 // -------------------------------------------------------------------------------------
 class EqualsEngineFactory : public EngineFactory {

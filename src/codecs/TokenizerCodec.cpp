@@ -1,4 +1,4 @@
-#include "TokenizerCodec.hpp"
+#include "codecs/TokenizerCodec.hpp"
 #include "compressor/TokenizerCompressor.hpp"
 
 #include <cstddef>

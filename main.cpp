@@ -14,7 +14,7 @@ using namespace std;
 int main(int argc, char** argv)
 {
    if (argc < 3 || argc > 4) {
-      std::cerr << "Usage: " << argv[0] << " <column:file> <like-pattern:str> [fsst|tokenizer]" << std::endl;
+      std::cerr << "Usage: " << argv[0] << " <column:file> <like-pattern:str> [fsst|token|onpair|onpairplus]" << std::endl;
       exit(-1);
    }
 
@@ -24,10 +24,14 @@ int main(int argc, char** argv)
       std::string codec_arg = argv[3];
       if (codec_arg == "fsst") {
          codec = CompressionCodec::Fsst;
-      } else if (codec_arg == "tokenizer") {
+      } else if (codec_arg == "token") {
          codec = CompressionCodec::Tokenizer;
+      } else if (codec_arg == "onpair") {
+         codec = CompressionCodec::OnPair;
+      } else if (codec_arg == "onpairplus") {
+         codec = CompressionCodec::OnPairPlus;
       } else {
-         std::cerr << "Unknown codec '" << codec_arg << "'. Expected one of: fsst, tokenizer." << std::endl;
+         std::cerr << "Unknown codec '" << codec_arg << "'. Expected one of: fsst, token, onpair, onpairplus." << std::endl;
          return 1;
       }
    }
@@ -74,7 +78,15 @@ int main(int argc, char** argv)
       return 1;
    }
 
-   std::cout << "Running: " << pattern << " on " << file_path << " (codec=" << (codec == CompressionCodec::Fsst ? "fsst" : "tokenizer") << ")" << std::endl;
+   std::string codec_name = "onpairplus";
+   if (codec == CompressionCodec::Fsst) {
+      codec_name = "fsst";
+   } else if (codec == CompressionCodec::Tokenizer) {
+      codec_name = "token";
+   } else if (codec == CompressionCodec::OnPair) {
+      codec_name = "onpair";
+   }
+   std::cout << "Running: " << pattern << " on " << file_path << " (codec=" << codec_name << ")" << std::endl;
    std::cout << "--------" << std::endl;
    driver.LoadBlocks(file_path, codec);
    driver.Run(pattern);
