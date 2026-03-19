@@ -40,7 +40,7 @@ public:
 
    uint32_t Scan(const CompressedBlock& block, std::vector<uint32_t>& result) final
    {
-      state_machine.init(block.decoder);
+      state_machine.init(block.fsst_decoder);
       state_machine.precompute();
 
       auto begin = std::chrono::high_resolution_clock::now();
@@ -74,8 +74,8 @@ public:
 
          // Matching code.
          const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
-         // bool match = state_machine.fsst_lookup_kmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
-         bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+         // bool match = state_machine.fsst_lookup_kmp_match(block.fsst_decoder, compressed_text.size(), cast_input, block.fsst_decoder.GetIdealBufferSize(compressed_text.size()));
+         bool match = state_machine.fsst_lookup_zerokmp_match(block.fsst_decoder, compressed_text.size(), cast_input, block.fsst_decoder.GetIdealBufferSize(compressed_text.size()));
          if (match) {
             result[match_count++] = row_idx;
          }
@@ -102,7 +102,7 @@ public:
          // Matching code.
          skipped++;
          const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
-         bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+         bool match = state_machine.fsst_lookup_zerokmp_match(block.fsst_decoder, compressed_text.size(), cast_input, block.fsst_decoder.GetIdealBufferSize(compressed_text.size()));
          if (match) {
             result[match_count++] = row_idx;
          }
@@ -127,7 +127,7 @@ public:
             if (_mm256_movemask_epi8(byte_mask_vec)) {
                // Otherwise, use Mihail's slow but still fast matcher.
                const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
-               bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+               bool match = state_machine.fsst_lookup_zerokmp_match(block.fsst_decoder, compressed_text.size(), cast_input, block.fsst_decoder.GetIdealBufferSize(compressed_text.size()));
                if (match) {
                   result[match_count++] = row_idx;
                }
@@ -159,7 +159,7 @@ public:
                 _mm256_cmpeq_epi8(value_vec, symbol_vec_1));
             if (_mm256_movemask_epi8(byte_mask_vec)) {
                const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
-               bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+               bool match = state_machine.fsst_lookup_zerokmp_match(block.fsst_decoder, compressed_text.size(), cast_input, block.fsst_decoder.GetIdealBufferSize(compressed_text.size()));
                if (match) {
                   result[match_count++] = row_idx;
                }
@@ -241,8 +241,8 @@ public:
          // Matching code.
          std::string_view compressed_text = block.GetRow(row_idx);
          const unsigned char* cast_input = reinterpret_cast<const unsigned char*>(compressed_text.data());
-         // bool match = state_machine.fsst_lookup_kmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
-         bool match = state_machine.fsst_lookup_zerokmp_match(block.decoder, compressed_text.size(), cast_input, block.decoder.GetIdealBufferSize(compressed_text.size()));
+         // bool match = state_machine.fsst_lookup_kmp_match(block.fsst_decoder, compressed_text.size(), cast_input, block.fsst_decoder.GetIdealBufferSize(compressed_text.size()));
+         bool match = state_machine.fsst_lookup_zerokmp_match(block.fsst_decoder, compressed_text.size(), cast_input, block.fsst_decoder.GetIdealBufferSize(compressed_text.size()));
          if (match) {
             result[match_count++] = row_idx;
          }
@@ -264,7 +264,7 @@ private:
       for (const auto& path : possible_full_paths) {
          std::cout << "path: ";
          for (uint8_t symbol : path) {
-            std::cout << block.decoder.SymbolToStr(symbol) << " (" << (int)symbol << ") ";
+            std::cout << block.fsst_decoder.SymbolToStr(symbol) << " (" << (int)symbol << ") ";
          }
          std::cout << std::endl;
       }
@@ -274,8 +274,8 @@ private:
    std::vector<uint8_t> GetSymbolsWithSuffix(const CompressedBlock& block, uint32_t shift, std::string_view pattern) const
    {
       std::vector<uint8_t> symbols;
-      for (uint32_t symbol = 0; symbol < block.decoder.GetSymbolTableSize(); symbol++) {
-         std::string symbol_text = block.decoder.SymbolToStr(symbol);
+      for (uint32_t symbol = 0; symbol < block.fsst_decoder.GetSymbolTableSize(); symbol++) {
+         std::string symbol_text = block.fsst_decoder.SymbolToStr(symbol);
          if (symbol_text.size() <= shift) {
             continue;
          }
@@ -291,8 +291,8 @@ private:
    std::vector<uint8_t> GetSymbolsWithPrefix(const CompressedBlock& block, std::string_view pattern) const
    {
       std::vector<uint8_t> symbols;
-      for (uint32_t symbol = 0; symbol < block.decoder.GetSymbolTableSize(); symbol++) {
-         std::string text = block.decoder.SymbolToStr(symbol);
+      for (uint32_t symbol = 0; symbol < block.fsst_decoder.GetSymbolTableSize(); symbol++) {
+         std::string text = block.fsst_decoder.SymbolToStr(symbol);
          if (text.starts_with(pattern) || pattern.starts_with(text)) {
             symbols.push_back(symbol);
          }
@@ -303,8 +303,8 @@ private:
    std::vector<uint8_t> GetSymbolsContainingFullPattern(const CompressedBlock& block) const
    {
       std::vector<uint8_t> symbols;
-      for (uint32_t symbol = 0; symbol < block.decoder.GetSymbolTableSize(); symbol++) {
-         std::string text = block.decoder.SymbolToStr(symbol);
+      for (uint32_t symbol = 0; symbol < block.fsst_decoder.GetSymbolTableSize(); symbol++) {
+         std::string text = block.fsst_decoder.SymbolToStr(symbol);
          if (text.find(pattern) != std::string::npos) {
             symbols.push_back(symbol);
          }
@@ -319,7 +319,7 @@ private:
             return true;
          }
          for (auto symbol : symbols) {
-            std::string other_symbol_text = block.decoder.SymbolToStr(symbol);
+            std::string other_symbol_text = block.fsst_decoder.SymbolToStr(symbol);
             if (symbol_text.size() < other_symbol_text.size() && other_symbol_text.size() <= remaining_pattern_size) {
                return false;
             }
@@ -329,7 +329,7 @@ private:
 
       std::vector<uint8_t> symbols = GetSymbolsWithPrefix(block, pattern.substr(idx));
       for (uint8_t symbol : symbols) {
-         std::string text = block.decoder.SymbolToStr(symbol);
+         std::string text = block.fsst_decoder.SymbolToStr(symbol);
          bool possible = is_possible(text, symbols, pattern.size() - idx);
          if (possible) {
             std::vector<uint8_t> new_path = path;
@@ -353,7 +353,7 @@ private:
       {
          std::vector<uint8_t> symbols = GetSymbolsContainingFullPattern(block);
          for (uint8_t symbol : symbols) {
-            std::string text = block.decoder.SymbolToStr(symbol);
+            std::string text = block.fsst_decoder.SymbolToStr(symbol);
             possible_full_paths.insert({symbol});
          }
       }
@@ -364,7 +364,7 @@ private:
       for (uint32_t offset = 0; offset < 8; offset++) {
          std::vector<uint8_t> symbols = GetSymbolsWithSuffix(block, offset, pattern);
          for (uint8_t symbol : symbols) {
-            std::string text = block.decoder.SymbolToStr(symbol);
+            std::string text = block.fsst_decoder.SymbolToStr(symbol);
             uint32_t starting_position = text.size() - offset;
             if (starting_position < symbols_to_get_to_starting_positions.size()) {
                symbols_to_get_to_starting_positions[starting_position].insert(symbol);
@@ -377,7 +377,7 @@ private:
       //       return true;
       //    }
       //    for (auto symbol : symbols) {
-      //       std::string text = block.decoder.SymbolToStr(symbol);
+      //       std::string text = block.fsst_decoder.SymbolToStr(symbol);
       //       if (text.size() > symbol_text.size()) {
       //          return false;
       //       }
@@ -392,7 +392,7 @@ private:
       //    if (symbols_to_get_to_starting_positions[idx].size() > 0 || idx == 0) {
       //       std::vector<uint8_t> symbols = GetSymbolsWithSuffix(block, 0, pattern.substr(idx));
       //       for (uint8_t symbol : symbols) {
-      //          std::string text = block.decoder.SymbolToStr(symbol);
+      //          std::string text = block.fsst_decoder.SymbolToStr(symbol);
       //          bool possible = is_possible(text, symbols, pattern.size() - idx);
       //          std::cout << "symbol: " << (int)symbol << " text: " << text << " possible: " << possible << std::endl;
       //       }

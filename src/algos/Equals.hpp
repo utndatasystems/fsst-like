@@ -1,5 +1,6 @@
 #pragma once
 // -------------------------------------------------------------------------------------
+#include <cstring>
 #include "BenchmarkDriver.hpp"
 #include "TokenizerCodec.hpp"
 // -------------------------------------------------------------------------------------
@@ -7,11 +8,14 @@ class EqualsEngine : public Engine {
 public:
    explicit EqualsEngine(std::string_view pattern)
        : pattern(pattern)
-       , decode_buffer(128)
        , encoded_pattern_buffer(128)
    {
       std::span<const char> pattern_span(pattern.data(), pattern.size());
       tokenizer_codec::Compress(pattern_span, tokenizer_encoded_pattern);
+   }
+
+   ~EqualsEngine() override
+   {
    }
 
    uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result) final
@@ -28,23 +32,22 @@ public:
    uint32_t Scan(const CompressedBlock& block, std::vector<uint32_t>& result) final
    {
       uint32_t match_count = 0;
-      bool has_encoded_pattern = false;
-      uint32_t encoded_pattern_size = 0;
+      bool has_fsst_encoded_pattern = false;
+      uint32_t fsst_encoded_pattern_size = 0;
 
-      if (!block.decoder.IsTokenizerMode()) {
-         const uint32_t required = static_cast<uint32_t>(pattern.size() * 2 + 8);
-         if (required > encoded_pattern_buffer.size()) {
-            encoded_pattern_buffer.resize(required);
-         }
-         auto [ok, written] = block.decoder.Encode(pattern, encoded_pattern_buffer);
-         has_encoded_pattern = ok;
-         encoded_pattern_size = written;
-         assert(has_encoded_pattern && "FSST equality fast path expects full predicate encoding");
+      if (block.IsTokenizerCodec() == false) {
+      const uint32_t required = static_cast<uint32_t>(pattern.size() * 2 + 8);
+      if (required > encoded_pattern_buffer.size()) {
+         encoded_pattern_buffer.resize(required);
       }
+      auto [ok, written] = block.fsst_decoder.Encode(pattern, encoded_pattern_buffer);
+      has_fsst_encoded_pattern = ok;
+      fsst_encoded_pattern_size = written;
+   }
 
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
          std::string_view compressed_text = block.GetRow(row_idx);
-         if (CompressedEquals(block.decoder, compressed_text, has_encoded_pattern, encoded_pattern_size)) {
+         if (CompressedEquals(block, compressed_text, has_fsst_encoded_pattern, fsst_encoded_pattern_size)) {
             result[match_count++] = row_idx;
          }
       }
@@ -52,31 +55,22 @@ public:
    }
 
 private:
-   bool CompressedEquals(const FsstDecoder& decoder, std::string_view compressed_text, bool has_encoded_pattern, uint32_t encoded_pattern_size)
+   bool CompressedEquals(const CompressedBlock& block,
+                         std::string_view compressed_text,
+                         bool has_fsst_encoded_pattern,
+                         uint32_t fsst_encoded_pattern_size)
    {
-      if (decoder.IsTokenizerMode()) {
-         if (compressed_text.size() != tokenizer_encoded_pattern.size()) {
-            return false;
-         }
-         return std::memcmp(compressed_text.data(), tokenizer_encoded_pattern.data(), tokenizer_encoded_pattern.size()) == 0;
+      if (block.IsTokenizerCodec()) {
+         std::string_view encoded_pattern(tokenizer_encoded_pattern.data(), tokenizer_encoded_pattern.size());
+         return compressed_text == encoded_pattern;
       }
 
-      if (has_encoded_pattern && compressed_text.size() == encoded_pattern_size) {
-         return std::memcmp(compressed_text.data(), encoded_pattern_buffer.data(), encoded_pattern_size) == 0;
-      }
-
-      // Fallback: if the pattern cannot be encoded exactly with this symbol table,
-      // decode and compare in text space.
-      uint32_t ideal_buffer_size = decoder.GetIdealBufferSize(compressed_text.size());
-      if (ideal_buffer_size > decode_buffer.size()) {
-         decode_buffer.resize(ideal_buffer_size);
-      }
-      uint32_t decoded_size = decoder.Decode(compressed_text, decode_buffer);
-      return std::string_view(decode_buffer.data(), decoded_size) == pattern;
+      assert(has_fsst_encoded_pattern && "FSST equals expects pattern to always encode into pre-sized buffer");
+      std::string_view encoded_pattern(encoded_pattern_buffer.data(), fsst_encoded_pattern_size);
+      return compressed_text == encoded_pattern;
    }
 
    std::string_view pattern;
-   std::vector<char> decode_buffer;
    std::vector<char> encoded_pattern_buffer;
    std::vector<char> tokenizer_encoded_pattern;
 };

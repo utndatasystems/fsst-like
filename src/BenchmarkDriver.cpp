@@ -132,7 +132,8 @@ CompressedBlock BenchmarkDriver::CreateFsstBlock(const RawBlock& raw_block) cons
    // Create decoder.
    vector<char> decoder_buffer(encoder.GetRequiredDecoderSize());
    encoder.SerializeDecoder(decoder_buffer);
-   fsst_block.decoder.DeserializeDecoder(decoder_buffer);
+   fsst_block.codec = CompressionCodec::Fsst;
+   fsst_block.fsst_decoder.DeserializeDecoder(decoder_buffer);
 
    // Find characters that occur in the encoded data not hidden behind symbols.
    uint8_t prev = 0;
@@ -170,7 +171,7 @@ CompressedBlock BenchmarkDriver::CreateTokenizerBlock(const RawBlock& raw_block)
       compressed_block.offsets[idx + 1] = compressed_block.data.size();
    }
 
-   compressed_block.decoder.InitializeTokenizerMode();
+   compressed_block.codec = CompressionCodec::Tokenizer;
    return compressed_block;
 }
 // -------------------------------------------------------------------------------------

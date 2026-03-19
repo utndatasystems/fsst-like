@@ -26,7 +26,7 @@ public:
    void InitializeForCompressedScan(const CompressedBlock& block)
    {
       // Init the FSST symbols.
-      machine.init(block.decoder);
+      machine.init(block.fsst_decoder);
 
       // Precompute the state lookup tables.
       machine.precompute();
@@ -46,7 +46,7 @@ public:
          // std::cerr << "row_idx=" << row_idx << std::endl;
 
          // Match.
-         if (static_cast<T*>(this)->FsstMatches(block.decoder, compressed_text)) {
+         if (static_cast<T*>(this)->FsstMatches(block.fsst_decoder, compressed_text)) {
             result[match_count++] = row_idx;
          }
       }

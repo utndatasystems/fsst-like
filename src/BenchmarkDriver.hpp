@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include "FsstWrapper.hpp"
+#include "TokenizerDecoder.hpp"
 #include "Utility.hpp"
 #include "fsst/fsst.h"
 // -------------------------------------------------------------------------------------
@@ -18,7 +19,9 @@ enum class CompressionCodec {
 struct CompressedBlock {
    uint32_t row_count;
    std::vector<char> data;
-   FsstDecoder decoder;
+   CompressionCodec codec = CompressionCodec::Fsst;
+   FsstDecoder fsst_decoder;
+   TokenizerDecoder tokenizer_decoder;
    std::bitset<256> used_chars;
    std::array<uint32_t, BLOCK_SIZE + 1> offsets;
 
@@ -28,6 +31,26 @@ struct CompressedBlock {
       uint32_t end = offsets[row_idx + 1];
       return std::string_view(data.data() + start, end - start);
    }
+
+
+   uint32_t Decode(std::string_view input, std::span<char> output) const
+   {
+      std::span<const char> encoded(input.data(), input.size());
+      if (codec == CompressionCodec::Fsst) {
+         return fsst_decoder.Decode(encoded, output);
+      }
+      return tokenizer_decoder.Decode(encoded, output);
+   }
+
+   uint32_t GetIdealBufferSize(uint32_t compressed_size) const
+   {
+      if (codec == CompressionCodec::Fsst) {
+         return fsst_decoder.GetIdealBufferSize(compressed_size);
+      }
+      return tokenizer_decoder.GetIdealBufferSize(compressed_size);
+   }
+
+   bool IsTokenizerCodec() const { return codec == CompressionCodec::Tokenizer; }
 
    void PrintUsedChars(std::ostream& os) const
    {

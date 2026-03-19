@@ -2,7 +2,6 @@
 // -------------------------------------------------------------------------------------
 #include <iostream>
 #include <span>
-#include "TokenizerCodec.hpp"
 #include "Utility.hpp"
 #include "fsst.h"
 // -------------------------------------------------------------------------------------
@@ -37,8 +36,6 @@ public:
    ~FsstDecoder();
 
    uint32_t DeserializeDecoder(std::span<const char> input);
-   void InitializeTokenizerMode();
-   bool IsTokenizerMode() const { return mode == DecoderMode::Tokenizer; }
 
    // Returns number of bytes written to output (failed if `>output.size()`).
    uint32_t Decode(std::span<const char> input, std::span<char> output) const;
@@ -163,16 +160,8 @@ public:
       return false; /* full size of decompressed string (could be >size, then the actually decompressed part) */
    }
 private:
-   enum class DecoderMode {
-      Fsst,
-      Tokenizer
-   };
-
-   DecoderMode mode = DecoderMode::Fsst;
    uint32_t symbol_table_size = 0;
    fsst_decoder_t* decoder = nullptr;
-   static void DecodeTokenizer(std::span<const char> input, std::vector<char>& output);
-
    static uint32_t CountMatchingBytes(std::string_view text, uint64_t symbol, uint32_t len);
 };
 // -------------------------------------------------------------------------------------

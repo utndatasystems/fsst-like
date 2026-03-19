@@ -27,6 +27,7 @@ set(SOURCES
     src/BenchmarkDriver.cpp
     src/FsstWrapper.cpp
     src/TokenizerCodec.cpp
+    src/TokenizerDecoder.cpp
     src/SgttCompressorShim.cpp
     src/Utility.cpp
     src/StateMachine.cpp

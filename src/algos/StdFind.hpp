@@ -30,11 +30,11 @@ public:
          std::string_view compressed_text = block.GetRow(row_idx);
 
          // Decode the row.
-         uint32_t ideal_buffer_size = block.decoder.GetIdealBufferSize(compressed_text.size());
+         uint32_t ideal_buffer_size = block.GetIdealBufferSize(compressed_text.size());
          if (ideal_buffer_size > decode_buffer.size()) {
             decode_buffer.resize(ideal_buffer_size);
          }
-         uint32_t decoded_size = block.decoder.Decode(compressed_text, decode_buffer);
+         uint32_t decoded_size = block.Decode(compressed_text, decode_buffer);
 
          // Match.
          std::string_view text(decode_buffer.data(), decoded_size);

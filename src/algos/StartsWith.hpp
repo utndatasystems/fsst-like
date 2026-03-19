@@ -25,7 +25,7 @@ public:
 
    uint32_t Scan(const CompressedBlock& block, std::vector<uint32_t>& result)
    {
-      uint8_t symbol = block.decoder.FindLongestSymbol(pattern, false);
+      uint8_t symbol = block.fsst_decoder.FindLongestSymbol(pattern, false);
 
       uint32_t match_count = 0;
       for (uint32_t row_idx = 0; row_idx < block.row_count; row_idx++) {
@@ -37,11 +37,11 @@ public:
          }
 
          // Decode the row.
-         uint32_t ideal_buffer_size = block.decoder.GetIdealBufferSize(compressed_text.size());
+         uint32_t ideal_buffer_size = block.GetIdealBufferSize(compressed_text.size());
          if (ideal_buffer_size > decode_buffer.size()) {
             decode_buffer.resize(ideal_buffer_size);
          }
-         uint32_t decoded_size = block.decoder.Decode(compressed_text, decode_buffer);
+         uint32_t decoded_size = block.Decode(compressed_text, decode_buffer);
 
          // Match.
          std::string_view text(decode_buffer.data(), decoded_size);
