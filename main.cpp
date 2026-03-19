@@ -6,6 +6,8 @@
 #include "src/algos/StartsWith.hpp"
 #include "src/algos/StdFind.hpp"
 #include "src/algos/Memmem.hpp"
+#include "src/algos/Equals.hpp"
+#include "src/algos/PassThrough.hpp"
 // -------------------------------------------------------------------------------------
 using namespace std;
 // -------------------------------------------------------------------------------------
@@ -34,6 +36,16 @@ int main(int argc, char** argv)
    driver.AddEngine(std::make_unique<StdFindEngineFactory>());
    driver.AddEngine(std::make_unique<StdFindEngineFactory>());
    driver.AddEngine(std::make_unique<StdFindEngineFactory>());
+
+   // Equality (separate engine; only active for patterns without wildcards).
+   driver.AddEngine(std::make_unique<EqualsEngineFactory>());
+   driver.AddEngine(std::make_unique<EqualsEngineFactory>());
+   driver.AddEngine(std::make_unique<EqualsEngineFactory>());
+
+   // Lower-bound O(n) row walk baseline.
+   driver.AddEngine(std::make_unique<PassThroughEngineFactory>());
+   driver.AddEngine(std::make_unique<PassThroughEngineFactory>());
+   driver.AddEngine(std::make_unique<PassThroughEngineFactory>());
 
    // std::memmem.
    // driver.AddEngine(std::make_unique<MemmemEngineFactory>());
