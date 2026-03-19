@@ -7,3 +7,6 @@
 [submodule "simde"]
 	path = simde
 	url = https://github.com/simd-everywhere/simde.git
+[submodule "third-party/token-vldb2026"]
+	path = third-party/token-vldb2026
+	url = git@github.com:stoianmihail/token-vldb2026.git
