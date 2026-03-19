@@ -40,9 +40,9 @@ int main(int argc, char** argv)
    // driver.AddEngine(std::make_unique<MemmemEngineFactory>());
    // driver.AddEngine(std::make_unique<MemmemEngineFactory>());
 
-   // std::starts_with.
-   driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
    if (codec == CompressionCodec::Fsst) {
+      // FSST-specific compressed-path experiments.
+      driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
       driver.AddEngine(std::make_unique<SkippingEngineFactory>());
       driver.AddEngine(std::make_unique<SkippingEngineFactory>());
       driver.AddEngine(std::make_unique<SkippingEngineFactory>());
