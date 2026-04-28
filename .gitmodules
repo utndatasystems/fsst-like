@@ -10,3 +10,7 @@
 [submodule "third-party/token-vldb2026"]
 	path = third-party/token-vldb2026
 	url = git@github.com:stoianmihail/token-vldb2026.git
+[submodule "third-party/onpair_cpp"]
+	path = third-party/onpair_cpp
+	url = https://github.com/gargiulofrancesco/onpair_cpp
+	branch = refactoring
