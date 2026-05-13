@@ -1,5 +1,6 @@
 #include "codecs/TokenizerDictionary.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -88,6 +89,29 @@ TokenizerDictionary::TokenizerDictionary()
       lengths[token_id] = length;
       tokens[token_id] = LoadU64Le(runtime_dict.data() + token_id * bytes_per_token);
    }
+
+   sorted_token_ids.resize(token_count);
+   sorted_rank_by_token_id.resize(token_count);
+   for (size_t token_id = 0; token_id < token_count; token_id++) {
+      sorted_token_ids[token_id] = static_cast<uint16_t>(token_id);
+   }
+
+   std::sort(sorted_token_ids.begin(), sorted_token_ids.end(), [&](uint16_t lhs, uint16_t rhs) {
+      const auto left = TokenText(lhs);
+      const auto right = TokenText(rhs);
+      const int cmp = std::memcmp(left.data(), right.data(), std::min(left.size(), right.size()));
+      if (cmp != 0) {
+         return cmp < 0;
+      }
+      if (left.size() != right.size()) {
+         return left.size() < right.size();
+      }
+      return lhs < rhs;
+   });
+
+   for (uint32_t rank = 0; rank < sorted_token_ids.size(); rank++) {
+      sorted_rank_by_token_id[sorted_token_ids[rank]] = rank;
+   }
 }
 // -------------------------------------------------------------------------------------
 std::string_view TokenizerDictionary::TokenText(uint16_t token_id) const
@@ -96,6 +120,75 @@ std::string_view TokenizerDictionary::TokenText(uint16_t token_id) const
       throw std::runtime_error("TokenizerDictionary: token id out of range");
    }
    return std::string_view(reinterpret_cast<const char*>(&tokens[token_id]), lengths[token_id]);
+}
+// -------------------------------------------------------------------------------------
+std::string_view TokenizerDictionary::TokenTextByRank(uint32_t rank) const
+{
+   if (rank >= sorted_token_ids.size()) {
+      throw std::runtime_error("TokenizerDictionary: sorted rank out of range");
+   }
+   return TokenText(sorted_token_ids[rank]);
+}
+// -------------------------------------------------------------------------------------
+uint32_t TokenizerDictionary::SortedRank(uint16_t token_id) const
+{
+   if (token_id >= sorted_rank_by_token_id.size()) {
+      throw std::runtime_error("TokenizerDictionary: token id out of range");
+   }
+   return sorted_rank_by_token_id[token_id];
+}
+// -------------------------------------------------------------------------------------
+uint16_t TokenizerDictionary::TokenIdByRank(uint32_t rank) const
+{
+   if (rank >= sorted_token_ids.size()) {
+      throw std::runtime_error("TokenizerDictionary: sorted rank out of range");
+   }
+   return sorted_token_ids[rank];
+}
+// -------------------------------------------------------------------------------------
+TokenRankRange TokenizerDictionary::PrefixRange(const uint8_t* prefix, size_t prefix_len) const
+{
+   if (prefix_len > sizeof(uint64_t)) {
+      return {};
+   }
+
+   auto lower_bound = [&](const uint8_t* target, size_t target_len, uint32_t start) {
+      uint32_t lo = start;
+      uint32_t hi = static_cast<uint32_t>(sorted_token_ids.size());
+      while (lo < hi) {
+         const uint32_t mid = lo + ((hi - lo) >> 1);
+         const auto token = TokenTextByRank(mid);
+         const size_t cmp_len = std::min(token.size(), target_len);
+         const int cmp = std::memcmp(token.data(), target, cmp_len);
+         if (cmp < 0 || (cmp == 0 && token.size() < target_len)) {
+            lo = mid + 1;
+         } else {
+            hi = mid;
+         }
+      }
+      return lo;
+   };
+
+   const uint32_t lo = lower_bound(prefix, prefix_len, 0);
+
+   uint8_t upper[sizeof(uint64_t)];
+   size_t upper_len = prefix_len;
+   bool overflow = true;
+   while (upper_len > 0) {
+      if (prefix[upper_len - 1] < 0xFF) {
+         std::memcpy(upper, prefix, upper_len);
+         upper[upper_len - 1]++;
+         overflow = false;
+         break;
+      }
+      upper_len--;
+   }
+
+   const uint32_t hi = overflow ? static_cast<uint32_t>(sorted_token_ids.size()) : lower_bound(upper, upper_len, lo);
+   if (lo >= hi) {
+      return {};
+   }
+   return TokenRankRange{lo, hi - 1};
 }
 // -------------------------------------------------------------------------------------
 } // namespace tokenizer_codec

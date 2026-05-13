@@ -7,6 +7,7 @@
 #include <string_view>
 #include <vector>
 #include "BenchmarkDriver.hpp"
+#include "algos/TokenLikeAutomata.hpp"
 #include "codecs/TokenizerDictionary.hpp"
 // -------------------------------------------------------------------------------------
 class PercentLikeMatcher {
@@ -129,13 +130,15 @@ class TokenLikeEngine : public Engine {
 public:
    enum class Mode {
       Contains,
+      Prefix,
       General
    };
 
    TokenLikeEngine(std::string_view pattern, Mode mode)
        : pattern(pattern)
        , mode(mode)
-       , contains_matcher(mode == Mode::Contains ? pattern : std::string_view())
+       , kmp(mode == Mode::Contains ? pattern : std::string_view())
+       , prefix(mode == Mode::Prefix ? pattern : std::string_view())
        , like_matcher(pattern)
    {
    }
@@ -172,6 +175,9 @@ private:
       if (mode == Mode::Contains) {
          return text.find(pattern) != std::string_view::npos;
       }
+      if (mode == Mode::Prefix) {
+         return text.starts_with(pattern);
+      }
 
       like_matcher.Reset();
       like_matcher.Consume(text);
@@ -206,14 +212,18 @@ private:
       };
 
       if (mode == Mode::Contains) {
-         return consume_tokens(contains_matcher);
+         return token_like::Drive(kmp, compressed_text);
+      }
+      if (mode == Mode::Prefix) {
+         return token_like::Drive(prefix, compressed_text);
       }
       return consume_tokens(like_matcher);
    }
 
    std::string pattern;
    Mode mode;
-   TokenContainsMatcher contains_matcher;
+   token_like::KmpAutomaton kmp;
+   token_like::PrefixAutomaton prefix;
    PercentLikeMatcher like_matcher;
 };
 // -------------------------------------------------------------------------------------
@@ -225,7 +235,17 @@ public:
          return nullptr;
       }
 
-      if (std::count(pattern.begin(), pattern.end(), '%') == 2 &&
+      const size_t percent_count = std::count(pattern.begin(), pattern.end(), '%');
+      if (percent_count == 0) {
+         return nullptr;
+      }
+
+      if (percent_count == 1 && pattern.ends_with('%')) {
+         return std::make_unique<TokenLikeEngine>(pattern.substr(0, pattern.size() - 1),
+                                                  TokenLikeEngine::Mode::Prefix);
+      }
+
+      if (percent_count == 2 &&
           pattern.starts_with('%') &&
           pattern.ends_with('%') &&
           pattern.substr(1, pattern.size() - 2).find('%') == std::string_view::npos) {
