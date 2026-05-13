@@ -9,6 +9,7 @@
 #include "src/algos/Equals.hpp"
 #include "src/algos/OnPairLike.hpp"
 #include "src/algos/PassThrough.hpp"
+#include "src/algos/TokenLike.hpp"
 // -------------------------------------------------------------------------------------
 using namespace std;
 // -------------------------------------------------------------------------------------
@@ -40,38 +41,44 @@ int main(int argc, char** argv)
       driver.AddEngine(std::make_unique<OnPairLikeEngineFactory>());
       driver.AddEngine(std::make_unique<OnPairLikeEngineFactory>());
    } else {
-   // std::find.
-   driver.AddEngine(std::make_unique<StdFindEngineFactory>());
-   driver.AddEngine(std::make_unique<StdFindEngineFactory>());
-   driver.AddEngine(std::make_unique<StdFindEngineFactory>());
+      if (codec == CompressionCodec::Tokenizer) {
+         driver.AddEngine(std::make_unique<TokenLikeEngineFactory>());
+         driver.AddEngine(std::make_unique<TokenLikeEngineFactory>());
+         driver.AddEngine(std::make_unique<TokenLikeEngineFactory>());
+      }
 
-   // Equality (separate engine; only active for patterns without wildcards).
-   driver.AddEngine(std::make_unique<EqualsEngineFactory>());
-   driver.AddEngine(std::make_unique<EqualsEngineFactory>());
-   driver.AddEngine(std::make_unique<EqualsEngineFactory>());
+      // std::find.
+      driver.AddEngine(std::make_unique<StdFindEngineFactory>());
+      driver.AddEngine(std::make_unique<StdFindEngineFactory>());
+      driver.AddEngine(std::make_unique<StdFindEngineFactory>());
 
-   // Lower-bound O(n) row walk baseline.
-   driver.AddEngine(std::make_unique<PassThroughEngineFactory>());
-   driver.AddEngine(std::make_unique<PassThroughEngineFactory>());
-   driver.AddEngine(std::make_unique<PassThroughEngineFactory>());
+      // Equality (separate engine; only active for patterns without wildcards).
+      driver.AddEngine(std::make_unique<EqualsEngineFactory>());
+      driver.AddEngine(std::make_unique<EqualsEngineFactory>());
+      driver.AddEngine(std::make_unique<EqualsEngineFactory>());
 
-   // std::memmem.
-   // driver.AddEngine(std::make_unique<MemmemEngineFactory>());
-   // driver.AddEngine(std::make_unique<MemmemEngineFactory>());
-   // driver.AddEngine(std::make_unique<MemmemEngineFactory>());
+      // Lower-bound O(n) row walk baseline.
+      driver.AddEngine(std::make_unique<PassThroughEngineFactory>());
+      driver.AddEngine(std::make_unique<PassThroughEngineFactory>());
+      driver.AddEngine(std::make_unique<PassThroughEngineFactory>());
 
-   if (codec == CompressionCodec::Fsst) {
-      // FSST-specific compressed-path experiments.
-      // driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
-      // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-      // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
-      // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+      // std::memmem.
+      // driver.AddEngine(std::make_unique<MemmemEngineFactory>());
+      // driver.AddEngine(std::make_unique<MemmemEngineFactory>());
+      // driver.AddEngine(std::make_unique<MemmemEngineFactory>());
 
-      // Comet.
-      driver.AddEngine(std::make_unique<CometEngineFactory>());
-      driver.AddEngine(std::make_unique<CometEngineFactory>());
-      driver.AddEngine(std::make_unique<CometEngineFactory>());
-   }
+      if (codec == CompressionCodec::Fsst) {
+         // FSST-specific compressed-path experiments.
+         // driver.AddEngine(std::make_unique<StartsWithEngineFactory>());
+         // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+         // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+         // driver.AddEngine(std::make_unique<SkippingEngineFactory>());
+
+         // Comet.
+         driver.AddEngine(std::make_unique<CometEngineFactory>());
+         driver.AddEngine(std::make_unique<CometEngineFactory>());
+         driver.AddEngine(std::make_unique<CometEngineFactory>());
+      }
    }
 
    auto file_path = argv[1];
