@@ -112,6 +112,15 @@ TokenizerDictionary::TokenizerDictionary()
    for (uint32_t rank = 0; rank < sorted_token_ids.size(); rank++) {
       sorted_rank_by_token_id[sorted_token_ids[rank]] = rank;
    }
+
+   onpair_dictionary.offsets.reserve(token_count + 1);
+   onpair_dictionary.offsets.push_back(0);
+   for (uint16_t token_id : sorted_token_ids) {
+      const auto text = TokenText(token_id);
+      onpair_dictionary.bytes.insert(onpair_dictionary.bytes.end(), text.begin(), text.end());
+      onpair_dictionary.offsets.push_back(static_cast<uint32_t>(onpair_dictionary.bytes.size()));
+   }
+   onpair_dictionary.pad_for_decoder();
 }
 // -------------------------------------------------------------------------------------
 std::string_view TokenizerDictionary::TokenText(uint16_t token_id) const

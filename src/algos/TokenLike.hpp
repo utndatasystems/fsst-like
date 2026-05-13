@@ -222,8 +222,8 @@ private:
 
    std::string pattern;
    Mode mode;
-   token_like::KmpAutomaton kmp;
-   token_like::PrefixAutomaton prefix;
+   token_like::OnPairKmpAdapter kmp;
+   token_like::OnPairPrefixAdapter prefix;
    PercentLikeMatcher like_matcher;
 };
 // -------------------------------------------------------------------------------------

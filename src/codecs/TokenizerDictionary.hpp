@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string_view>
 #include <vector>
+#include <onpair/core/dictionary_view.h>
 // -------------------------------------------------------------------------------------
 namespace tokenizer_codec {
 // -------------------------------------------------------------------------------------
@@ -23,6 +24,7 @@ public:
    uint32_t SortedRank(uint16_t token_id) const;
    uint16_t TokenIdByRank(uint32_t rank) const;
    TokenRankRange PrefixRange(const uint8_t* prefix, size_t prefix_len) const;
+   onpair::DictionaryView OnPairDictionaryView() const { return onpair::DictionaryView(onpair_dictionary); }
    size_t TokenCount() const { return lengths.size(); }
 
 private:
@@ -32,6 +34,7 @@ private:
    std::vector<uint64_t> tokens;
    std::vector<uint16_t> sorted_token_ids;
    std::vector<uint32_t> sorted_rank_by_token_id;
+   onpair::Dictionary onpair_dictionary;
 };
 // -------------------------------------------------------------------------------------
 } // namespace tokenizer_codec
