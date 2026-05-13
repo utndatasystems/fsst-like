@@ -21,11 +21,18 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_compile_options(-Wno-unqualified-std-cast-call)
 endif()
 
+# -- OnPair submodule (header-only public API + small static lib) ---------------
+set(ONPAIR_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ONPAIR_NATIVE_ARCH ON CACHE BOOL "" FORCE)
+set(ONPAIR_ENABLE_LTO ON CACHE BOOL "" FORCE)
+add_subdirectory(third-party/onpair_cpp EXCLUDE_FROM_ALL)
+
 # Source files for the executable
 set(SOURCES
     main.cpp
     src/BenchmarkDriver.cpp
     src/FsstWrapper.cpp
+    src/OnPairWrapper.cpp
     src/Utility.cpp
     src/StateMachine.cpp
     src/MetaStateMachine.cpp
@@ -37,8 +44,10 @@ link_directories(${CMAKE_SOURCE_DIR}/fsst/build)
 # Define the executable
 add_executable(main ${SOURCES})
 
-# Link against FSST
-target_link_libraries(main fsst)
+# Link against FSST and OnPair
+target_link_libraries(main fsst OnPair::onpair)
 
 # Enable Link Time Optimization (LTO)
 set_target_properties(main PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
+# Optional: Use onpair's helper to ensure flags are fully applied
+onpair_optimize_target(main)

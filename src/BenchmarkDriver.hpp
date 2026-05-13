@@ -3,9 +3,11 @@
 #include <bitset>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #include "FsstWrapper.hpp"
+#include "OnPairWrapper.hpp"
 #include "Utility.hpp"
 #include "fsst/fsst.h"
 // -------------------------------------------------------------------------------------
@@ -50,13 +52,31 @@ struct RawBlock {
    }
 };
 // -------------------------------------------------------------------------------------
+struct OnPairBlock {
+   uint32_t row_count = 0;
+   uint32_t decompressed_bytes = 0;   // total raw bytes; lets bulk decoders size buffers
+   OnPairColumnHandle column;
+   std::array<uint32_t, BLOCK_SIZE + 1> offsets{};
+};
+// -------------------------------------------------------------------------------------
 class Engine {
 public:
    virtual ~Engine() = default;
 
-   // Called once for each block.
-   virtual uint32_t Scan(const FsstBlock& block, std::vector<uint32_t>& result) = 0;
-   virtual uint32_t Scan(const RawBlock& block, std::vector<uint32_t>& result) = 0;
+   // Each overload defaults to throwing logic_error so engines opt in to the
+   // block types they support. The driver catches and reports these.
+   virtual uint32_t Scan(const RawBlock&, std::vector<uint32_t>&)
+   {
+      throw std::logic_error("Engine::Scan(RawBlock) not implemented");
+   }
+   virtual uint32_t Scan(const FsstBlock&, std::vector<uint32_t>&)
+   {
+      throw std::logic_error("Engine::Scan(FsstBlock) not implemented");
+   }
+   virtual uint32_t Scan(const OnPairBlock&, std::vector<uint32_t>&)
+   {
+      throw std::logic_error("Engine::Scan(OnPairBlock) not implemented");
+   }
 };
 // -------------------------------------------------------------------------------------
 class EngineFactory {
@@ -78,7 +98,9 @@ private:
    std::vector<std::unique_ptr<EngineFactory>> engine_factories;
    std::vector<RawBlock> raw_blocks;
    std::vector<FsstBlock> fsst_blocks;
+   std::vector<OnPairBlock> onpair_blocks;
 
    FsstBlock CreateFsstBlock(const RawBlock& raw_block) const;
+   OnPairBlock CreateOnPairBlock(const RawBlock& raw_block) const;
 };
 // -------------------------------------------------------------------------------------

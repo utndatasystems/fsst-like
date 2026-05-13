@@ -1,6 +1,7 @@
 #include "BenchmarkDriver.hpp"
 #include <chrono>
 #include <fstream>
+#include <stdexcept>
 // -------------------------------------------------------------------------------------
 using namespace std;
 // -------------------------------------------------------------------------------------
@@ -13,6 +14,7 @@ void BenchmarkDriver::LoadBlocks(string_view file_path)
 {
    raw_blocks.clear();
    fsst_blocks.clear();
+   onpair_blocks.clear();
 
    // Open the file.
    string path_as_string(file_path);
@@ -45,9 +47,15 @@ void BenchmarkDriver::LoadBlocks(string_view file_path)
       raw_blocks.push_back(move(block));
    }
 
-   // Compress all blocks.
+   // Compress all blocks (FSST).
    for (RawBlock& raw_block : raw_blocks) {
       fsst_blocks.push_back(CreateFsstBlock(raw_block));
+   }
+
+   // Compress all blocks (OnPair).
+   onpair_blocks.reserve(raw_blocks.size());
+   for (RawBlock& raw_block : raw_blocks) {
+      onpair_blocks.push_back(CreateOnPairBlock(raw_block));
    }
 }
 // -------------------------------------------------------------------------------------
@@ -58,29 +66,40 @@ void BenchmarkDriver::Run(string_view pattern)
       // Create engine
       auto engine = engine_factory->Create(pattern);
       if (!engine) {
-         std::cout << engine_factory->GetName() << " skipped" << std::endl;
+         std::cout << engine_factory->GetName() << " skipped (factory)" << std::endl;
          continue;
       }
 
-      // Run raw
-      uint32_t raw_row_count = 0;
-      auto raw_begin = std::chrono::high_resolution_clock::now();
-      for (auto& block : raw_blocks) {
-         raw_row_count += engine->Scan(block, result);
-      }
-      auto raw_end = std::chrono::high_resolution_clock::now();
+      auto time_run = [&](auto& blocks, const char* label,
+                          uint32_t& hits, long& ms) -> bool {
+         try {
+            auto t0 = std::chrono::high_resolution_clock::now();
+            for (auto& b : blocks) {
+               hits += engine->Scan(b, result);
+            }
+            auto t1 = std::chrono::high_resolution_clock::now();
+            ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+            return true;
+         } catch (const std::logic_error& e) {
+            std::cout << engine_factory->GetName() << " " << label
+                      << " skipped: " << e.what() << std::endl;
+            return false;
+         }
+      };
 
-      // Run compressed
-      uint32_t compressed_row_count = 0;
-      auto compressed_begin = std::chrono::high_resolution_clock::now();
-      for (auto& block : fsst_blocks) {
-         compressed_row_count += engine->Scan(block, result);
-      }
-      auto compressed_end = std::chrono::high_resolution_clock::now();
+      uint32_t raw_hits = 0, fsst_hits = 0, op_hits = 0;
+      long raw_ms = -1, fsst_ms = -1, op_ms = -1;
+      bool ok_raw  = time_run(raw_blocks,    "raw",    raw_hits,  raw_ms);
+      bool ok_fsst = time_run(fsst_blocks,   "fsst",   fsst_hits, fsst_ms);
+      bool ok_op   = time_run(onpair_blocks, "onpair", op_hits,   op_ms);
 
-      auto raw_duration = std::chrono::duration_cast<std::chrono::milliseconds>(raw_end - raw_begin).count();
-      auto compressed_duration = std::chrono::duration_cast<std::chrono::milliseconds>(compressed_end - compressed_begin).count();
-      std::cout << engine_factory->GetName() << ", " << raw_row_count << ", " << compressed_row_count << ", " << raw_duration << "ms, " << compressed_duration << "ms" << endl;
+      std::cout << engine_factory->GetName()
+                << ", raw="    << (ok_raw  ? std::to_string(raw_hits)  : "-")
+                << " (" << raw_ms  << "ms)"
+                << ", fsst="   << (ok_fsst ? std::to_string(fsst_hits) : "-")
+                << " (" << fsst_ms << "ms)"
+                << ", onpair=" << (ok_op   ? std::to_string(op_hits)   : "-")
+                << " (" << op_ms   << "ms)" << endl;
    }
 }
 // -------------------------------------------------------------------------------------
@@ -137,5 +156,22 @@ FsstBlock BenchmarkDriver::CreateFsstBlock(const RawBlock& raw_block) const
    }
 
    return fsst_block;
+}
+// -------------------------------------------------------------------------------------
+OnPairBlock BenchmarkDriver::CreateOnPairBlock(const RawBlock& raw_block) const
+{
+   OnPairBlock blk;
+   blk.row_count = raw_block.row_count;
+   blk.decompressed_bytes = static_cast<uint32_t>(raw_block.data.size());
+   blk.offsets = raw_block.offsets;
+
+   onpair::encoding::TrainingConfig cfg;
+   cfg.bits = 12;
+   cfg.threshold = onpair::encoding::DynamicThreshold{1.0};
+   cfg.seed = 42;
+
+   blk.column.Build(raw_block.data.data(), raw_block.offsets.data(),
+                    raw_block.row_count, cfg);
+   return blk;
 }
 // -------------------------------------------------------------------------------------

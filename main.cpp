@@ -2,6 +2,7 @@
 #include "src/BenchmarkDriver.hpp"
 #include "src/SimdEverywhere.hpp"
 #include "src/algos/Comet.hpp"
+#include "src/algos/OnPair.hpp"
 #include "src/algos/Skipping.hpp"
 #include "src/algos/StartsWith.hpp"
 #include "src/algos/StdFind.hpp"
@@ -38,6 +39,14 @@ int main(int argc, char** argv)
    driver.AddEngine(std::make_unique<CometEngineFactory>());
    driver.AddEngine(std::make_unique<CometEngineFactory>());
    driver.AddEngine(std::make_unique<CometEngineFactory>());
+
+   // OnPair (native predicate evaluation on token-compressed data).
+   driver.AddEngine(std::make_unique<OnPairEngineFactory>());
+
+   // OnPair "stl" baseline: bulk decompress_all + std::find/starts_with/ends_with.
+   driver.AddEngine(std::make_unique<OnPairStdEngineFactory>());
+   driver.AddEngine(std::make_unique<OnPairStdEngineFactory>());
+   driver.AddEngine(std::make_unique<OnPairStdEngineFactory>());
 
    auto file_path = argv[1];
    auto pattern = argv[2];
