@@ -14,7 +14,7 @@ using namespace std;
 int main(int argc, char** argv)
 {
    if (argc < 3 || argc > 4) {
-      std::cerr << "Usage: " << argv[0] << " <column:file> <like-pattern:str> [fsst|token|onpair|onpairplus]" << std::endl;
+      std::cerr << "Usage: " << argv[0] << " <column:file> <like-pattern:str> [fsst|token]" << std::endl;
       exit(-1);
    }
 
@@ -26,12 +26,8 @@ int main(int argc, char** argv)
          codec = CompressionCodec::Fsst;
       } else if (codec_arg == "token") {
          codec = CompressionCodec::Tokenizer;
-      } else if (codec_arg == "onpair") {
-         codec = CompressionCodec::OnPair;
-      } else if (codec_arg == "onpairplus") {
-         codec = CompressionCodec::OnPairPlus;
       } else {
-         std::cerr << "Unknown codec '" << codec_arg << "'. Expected one of: fsst, token, onpair, onpairplus." << std::endl;
+         std::cerr << "Unknown codec '" << codec_arg << "'. Expected one of: fsst, token." << std::endl;
          return 1;
       }
    }
@@ -78,13 +74,11 @@ int main(int argc, char** argv)
       return 1;
    }
 
-   std::string codec_name = "onpairplus";
+   std::string codec_name = "fsst";
    if (codec == CompressionCodec::Fsst) {
       codec_name = "fsst";
    } else if (codec == CompressionCodec::Tokenizer) {
       codec_name = "token";
-   } else if (codec == CompressionCodec::OnPair) {
-      codec_name = "onpair";
    }
    std::cout << "Running: " << pattern << " on " << file_path << " (codec=" << codec_name << ")" << std::endl;
    std::cout << "--------" << std::endl;

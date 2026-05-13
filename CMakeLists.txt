@@ -14,7 +14,6 @@ include_directories(
     src
     .
     third-party/token-vldb2026/src
-    third-party/token-vldb2026/thirdparty/onpair/include
     third-party/token-vldb2026/thirdparty/robin_hood
 )
 
@@ -35,20 +34,11 @@ set(SOURCES
     src/decoders/FsstWrapper.cpp
     src/codecs/TokenizerCodec.cpp
     src/decoders/TokenizerDecoder.cpp
-    src/codecs/OnPairCodec.cpp
-    src/decoders/OnPairDecoder.cpp
-    src/codecs/OnPairPlusCodec.cpp
-    src/decoders/OnPairPlusDecoder.cpp
     src/SgttCompressorShim.cpp
     src/Utility.cpp
     src/StateMachine.cpp
     src/MetaStateMachine.cpp
     third-party/token-vldb2026/src/compressor/TokenizerCompressor.cpp
-    third-party/token-vldb2026/src/compressor/OnPairBaseCompressor.cpp
-    third-party/token-vldb2026/src/compressor/onpair_advanced/OnPairAdvancedCompressor.cpp
-    third-party/token-vldb2026/src/compressor/onpair_advanced/LongestPrefixMatcher.cpp
-    third-party/token-vldb2026/thirdparty/onpair/src/onpair.cpp
-    third-party/token-vldb2026/thirdparty/onpair/src/onpair16.cpp
 )
 
 # Add the FSST static library path

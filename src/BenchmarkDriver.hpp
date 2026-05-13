@@ -6,8 +6,6 @@
 #include <string>
 #include <vector>
 #include "decoders/FsstWrapper.hpp"
-#include "decoders/OnPairDecoder.hpp"
-#include "decoders/OnPairPlusDecoder.hpp"
 #include "decoders/TokenizerDecoder.hpp"
 #include "Utility.hpp"
 #include "fsst/fsst.h"
@@ -15,9 +13,7 @@
 constexpr uint32_t BLOCK_SIZE = 64 * 1024;
 enum class CompressionCodec {
    Fsst,
-   Tokenizer,
-   OnPair,
-   OnPairPlus
+   Tokenizer
 };
 // -------------------------------------------------------------------------------------
 struct CompressedBlock {
@@ -26,8 +22,6 @@ struct CompressedBlock {
    CompressionCodec codec = CompressionCodec::Fsst;
    FsstDecoder fsst_decoder;
    TokenizerDecoder tokenizer_decoder;
-   OnPairDecoder onpair_decoder;
-   OnPairPlusDecoder onpairplus_decoder;
    std::bitset<256> used_chars;
    std::array<uint32_t, BLOCK_SIZE + 1> offsets;
 
@@ -45,13 +39,7 @@ struct CompressedBlock {
       if (codec == CompressionCodec::Fsst) {
          return fsst_decoder.Decode(encoded, output);
       }
-      if (codec == CompressionCodec::Tokenizer) {
-         return tokenizer_decoder.Decode(encoded, output);
-      }
-      if (codec == CompressionCodec::OnPair) {
-         return onpair_decoder.Decode(encoded, output);
-      }
-      return onpairplus_decoder.Decode(encoded, output);
+      return tokenizer_decoder.Decode(encoded, output);
    }
 
    uint32_t GetIdealBufferSize(uint32_t compressed_size) const
@@ -59,13 +47,7 @@ struct CompressedBlock {
       if (codec == CompressionCodec::Fsst) {
          return fsst_decoder.GetIdealBufferSize(compressed_size);
       }
-      if (codec == CompressionCodec::Tokenizer) {
-         return tokenizer_decoder.GetIdealBufferSize(compressed_size);
-      }
-      if (codec == CompressionCodec::OnPair) {
-         return onpair_decoder.GetIdealBufferSize(compressed_size);
-      }
-      return onpairplus_decoder.GetIdealBufferSize(compressed_size);
+      return tokenizer_decoder.GetIdealBufferSize(compressed_size);
    }
 
    bool IsTokenizerCodec() const { return codec == CompressionCodec::Tokenizer; }
@@ -128,7 +110,5 @@ private:
 
    CompressedBlock CreateFsstBlock(const RawBlock& raw_block) const;
    CompressedBlock CreateTokenizerBlock(const RawBlock& raw_block) const;
-   CompressedBlock CreateOnPairBlock(const RawBlock& raw_block) const;
-   CompressedBlock CreateOnPairPlusBlock(const RawBlock& raw_block) const;
 };
 // -------------------------------------------------------------------------------------

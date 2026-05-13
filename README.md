@@ -40,11 +40,11 @@ cmake --build third-party/token-vldb2026/build -j20
 First, prepare the datasets.
 
 ```
-./scripts/data-setup.sh
+./scripts/data-setup.sh 10
 ```
 
 and run
 
 ```
-./build/main data/l_comment.csv %special%
+./build/main data/l_comment_sf10.csv %special%
 ```
