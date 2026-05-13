@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <onpair/api.h>
 #include "decoders/FsstWrapper.hpp"
 #include "decoders/TokenizerDecoder.hpp"
 #include "Utility.hpp"
@@ -13,7 +14,8 @@
 constexpr uint32_t BLOCK_SIZE = 64 * 1024;
 enum class CompressionCodec {
    Fsst,
-   Tokenizer
+   Tokenizer,
+   OnPair
 };
 // -------------------------------------------------------------------------------------
 struct CompressedBlock {
@@ -22,6 +24,8 @@ struct CompressedBlock {
    CompressionCodec codec = CompressionCodec::Fsst;
    FsstDecoder fsst_decoder;
    TokenizerDecoder tokenizer_decoder;
+   onpair::OnPairColumn onpair_column;
+   uint32_t max_uncompressed_row_size = 0;
    std::bitset<256> used_chars;
    std::array<uint32_t, BLOCK_SIZE + 1> offsets;
 
@@ -39,7 +43,10 @@ struct CompressedBlock {
       if (codec == CompressionCodec::Fsst) {
          return fsst_decoder.Decode(encoded, output);
       }
-      return tokenizer_decoder.Decode(encoded, output);
+      if (codec == CompressionCodec::Tokenizer) {
+         return tokenizer_decoder.Decode(encoded, output);
+      }
+      return 0;
    }
 
    uint32_t GetIdealBufferSize(uint32_t compressed_size) const
@@ -47,11 +54,15 @@ struct CompressedBlock {
       if (codec == CompressionCodec::Fsst) {
          return fsst_decoder.GetIdealBufferSize(compressed_size);
       }
-      return tokenizer_decoder.GetIdealBufferSize(compressed_size);
+      if (codec == CompressionCodec::Tokenizer) {
+         return tokenizer_decoder.GetIdealBufferSize(compressed_size);
+      }
+      return max_uncompressed_row_size + onpair::DECOMPRESS_BUFFER_PADDING;
    }
 
    bool IsTokenizerCodec() const { return codec == CompressionCodec::Tokenizer; }
    bool IsFsstCodec() const { return codec == CompressionCodec::Fsst; }
+   bool IsOnPairCodec() const { return codec == CompressionCodec::OnPair; }
 
    void PrintUsedChars(std::ostream& os) const
    {
@@ -110,5 +121,6 @@ private:
 
    CompressedBlock CreateFsstBlock(const RawBlock& raw_block) const;
    CompressedBlock CreateTokenizerBlock(const RawBlock& raw_block) const;
+   CompressedBlock CreateOnPairBlock(const RawBlock& raw_block) const;
 };
 // -------------------------------------------------------------------------------------

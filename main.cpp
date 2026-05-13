@@ -7,6 +7,7 @@
 #include "src/algos/StdFind.hpp"
 #include "src/algos/Memmem.hpp"
 #include "src/algos/Equals.hpp"
+#include "src/algos/OnPairLike.hpp"
 #include "src/algos/PassThrough.hpp"
 // -------------------------------------------------------------------------------------
 using namespace std;
@@ -14,7 +15,7 @@ using namespace std;
 int main(int argc, char** argv)
 {
    if (argc < 3 || argc > 4) {
-      std::cerr << "Usage: " << argv[0] << " <column:file> <like-pattern:str> [fsst|token]" << std::endl;
+      std::cerr << "Usage: " << argv[0] << " <column:file> <like-pattern:str> [fsst|token|onpair]" << std::endl;
       exit(-1);
    }
 
@@ -26,12 +27,19 @@ int main(int argc, char** argv)
          codec = CompressionCodec::Fsst;
       } else if (codec_arg == "token") {
          codec = CompressionCodec::Tokenizer;
+      } else if (codec_arg == "onpair") {
+         codec = CompressionCodec::OnPair;
       } else {
-         std::cerr << "Unknown codec '" << codec_arg << "'. Expected one of: fsst, token." << std::endl;
+         std::cerr << "Unknown codec '" << codec_arg << "'. Expected one of: fsst, token, onpair." << std::endl;
          return 1;
       }
    }
 
+   if (codec == CompressionCodec::OnPair) {
+      driver.AddEngine(std::make_unique<OnPairLikeEngineFactory>());
+      driver.AddEngine(std::make_unique<OnPairLikeEngineFactory>());
+      driver.AddEngine(std::make_unique<OnPairLikeEngineFactory>());
+   } else {
    // std::find.
    driver.AddEngine(std::make_unique<StdFindEngineFactory>());
    driver.AddEngine(std::make_unique<StdFindEngineFactory>());
@@ -64,6 +72,7 @@ int main(int argc, char** argv)
       driver.AddEngine(std::make_unique<CometEngineFactory>());
       driver.AddEngine(std::make_unique<CometEngineFactory>());
    }
+   }
 
    auto file_path = argv[1];
    auto pattern = argv[2];
@@ -79,6 +88,8 @@ int main(int argc, char** argv)
       codec_name = "fsst";
    } else if (codec == CompressionCodec::Tokenizer) {
       codec_name = "token";
+   } else if (codec == CompressionCodec::OnPair) {
+      codec_name = "onpair";
    }
    std::cout << "Running: " << pattern << " on " << file_path << " (codec=" << codec_name << ")" << std::endl;
    std::cout << "--------" << std::endl;

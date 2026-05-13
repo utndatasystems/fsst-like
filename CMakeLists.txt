@@ -27,6 +27,16 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_compile_options(-Wno-unqualified-std-cast-call)
 endif()
 
+set(ONPAIR_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ONPAIR_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(ONPAIR_INSTALL OFF CACHE BOOL "" FORCE)
+find_package(Boost 1.81 QUIET)
+if(Boost_FOUND AND NOT TARGET Boost::unordered)
+    add_library(Boost::unordered INTERFACE IMPORTED)
+    target_include_directories(Boost::unordered INTERFACE ${Boost_INCLUDE_DIRS})
+endif()
+add_subdirectory(third-party/onpair_cpp)
+
 # Source files for the executable
 set(SOURCES
     main.cpp
@@ -54,7 +64,7 @@ target_compile_definitions(main PRIVATE
 )
 
 # Link against FSST
-target_link_libraries(main fsst)
+target_link_libraries(main fsst OnPair::onpair)
 
 # Enable Link Time Optimization (LTO)
 set_target_properties(main PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)

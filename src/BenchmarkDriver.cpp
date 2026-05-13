@@ -60,6 +60,8 @@ void BenchmarkDriver::LoadBlocks(string_view file_path, CompressionCodec codec)
       RawBlock& raw_block = raw_blocks[block_idx];
       if (codec == CompressionCodec::Fsst) {
          compressed_blocks.push_back(CreateFsstBlock(raw_block));
+      } else if (codec == CompressionCodec::OnPair) {
+         compressed_blocks.push_back(CreateOnPairBlock(raw_block));
       } else {
          compressed_blocks.push_back(CreateTokenizerBlock(raw_block));
       }
@@ -186,6 +188,26 @@ CompressedBlock BenchmarkDriver::CreateTokenizerBlock(const RawBlock& raw_block)
    }
 
    compressed_block.codec = CompressionCodec::Tokenizer;
+   return compressed_block;
+}
+// -------------------------------------------------------------------------------------
+CompressedBlock BenchmarkDriver::CreateOnPairBlock(const RawBlock& raw_block) const
+{
+   CompressedBlock compressed_block;
+   compressed_block.row_count = raw_block.row_count;
+   compressed_block.codec = CompressionCodec::OnPair;
+   compressed_block.used_chars.reset();
+
+   uint32_t max_row_size = 0;
+   for (uint32_t idx = 0; idx < raw_block.row_count; idx++) {
+      const uint32_t row_size = raw_block.offsets[idx + 1] - raw_block.offsets[idx];
+      max_row_size = std::max(max_row_size, row_size);
+   }
+   compressed_block.max_uncompressed_row_size = max_row_size;
+
+   compressed_block.onpair_column = onpair::OnPairColumn::compress(raw_block.data.data(),
+                                                                   raw_block.offsets.data(),
+                                                                   raw_block.row_count);
    return compressed_block;
 }
 // -------------------------------------------------------------------------------------
